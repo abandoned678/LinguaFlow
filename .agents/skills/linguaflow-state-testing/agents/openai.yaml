@@ -1,0 +1,4 @@
+interface:
+  display_name: "LinguaFlow 输入状态测试"
+  short_description: "为分句、组词、光标、过期翻译和当前句替换建立可复现检查"
+  default_prompt: "使用 $linguaflow-state-testing，为当前输入状态问题先建立失败检查，再修复并执行核心及 Rime 检查，说明宿主实测尚未覆盖的部分。"

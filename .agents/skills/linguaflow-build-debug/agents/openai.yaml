@@ -1,0 +1,4 @@
+interface:
+  display_name: "LinguaFlow 构建与排查"
+  short_description: "通过项目脚本构建与打包，排查依赖、输入源身份和运行状态"
+  default_prompt: "使用 $linguaflow-build-debug，核对当前构建和输入源身份，完成任务所需的最小构建或诊断，并分别报告产物、安装与宿主验证证据。"

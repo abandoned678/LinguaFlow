@@ -1,0 +1,4 @@
+interface:
+  display_name: "LinguaFlow 宿主验收"
+  short_description: "为文本编辑与 Codex 整理或执行输入、预览及译文替换验收"
+  default_prompt: "使用 $linguaflow-host-validation，根据当前需求或代码改动检查文本编辑与 Codex 的宿主行为，区分预期、已有实现和实际验证结果。"
