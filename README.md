@@ -90,6 +90,8 @@ swift run linguaflow-translation-checks
 
 ## 目录
 
+系统结构、资源所有权和主要数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)，其中单独列出了当前实现与首版目标的差异。
+
 - `Sources/LinguaFlowCore`：句子缓冲、请求修订号和异步结果验旧。
 - `Sources/LinguaFlowRimeBridge`：极窄的 C/librime 边界。
 - `Sources/LinguaFlowRime`：Swift 拼音引擎封装。
