@@ -10,9 +10,10 @@ public enum TrackedCaretReconciliation {
         expectedCaretLocation: Int?,
         currentSelection: NSRange,
         hasActiveComposition: Bool,
-        hasTrackedContext: Bool
+        hasTrackedContext: Bool,
+        isAwaitingHostLineBreak: Bool = false
     ) -> TrackedCaretReconciliationAction {
-        guard !hasActiveComposition, hasTrackedContext else {
+        guard !hasActiveComposition, !isAwaitingHostLineBreak, hasTrackedContext else {
             return .keepContext
         }
         guard let expectedCaretLocation else { return .clearContext }

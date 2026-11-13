@@ -24,7 +24,7 @@ final class AppEnvironment {
             create: true
         )
         let userData = appSupport
-            .appendingPathComponent("LinguaFlow", isDirectory: true)
+            .appendingPathComponent("LinguaFlowDev", isDirectory: true)
             .appendingPathComponent("Rime", isDirectory: true)
 
         runtime = try RimeRuntime(

@@ -8,12 +8,13 @@ import LinguaFlowRime
 @MainActor
 final class LinguaFlowInputController: IMKInputController {
     private let product = InputProduct.current
+    private var isActive = false
     private var activeClient: (any IMKTextInput)?
     private var engine: RimeEngine?
     private var currentPreedit = ""
     private var currentCandidates: [RimeCandidate] = []
     private var currentHighlightedIndex = 0
-    private var sentenceBuffer = CommittedSentenceBuffer(maxCharacters: 280)
+    private lazy var sentenceBuffer = CommittedSentenceBuffer(maxCharacters: 280, periodEndsSentence: product == .english)
     private var latestTranslation: TranslationResult?
     private var translationRevision: UInt64 = 0
     private var translationSourceText: String?
@@ -22,6 +23,7 @@ final class LinguaFlowInputController: IMKInputController {
     private var spellCheckRevision: UInt64 = 0
     private var spellCheckTask: Task<Void, Never>?
     private var expectedHostCaretLocation: Int?
+    private var pendingHostLineBreak: Int?
     private let englishSpellChecker = EnglishSpellChecker()
     private var englishCandidateContext: EnglishCandidateContext?
     private var candidateMeaningRevision: UInt64 = 0
@@ -29,6 +31,7 @@ final class LinguaFlowInputController: IMKInputController {
     private var candidateMeaningCache: [String: String] = [:]
     private var candidateTranslationProvider: OnDeviceTranslationProvider?
     private var lastValidAnchor: NSRect?
+    private var positionRefreshTask: Task<Void, Never>?
     private let panelController = PreviewPanelController.shared
     private var coordinator: TranslationCoordinator!
 
@@ -53,10 +56,14 @@ final class LinguaFlowInputController: IMKInputController {
         }
         coordinator.onResult = { [weak self] result in
             guard
-                let self,
+                let self, self.isActive,
                 self.translationRevision == result.revision,
                 self.translationSourceText == result.sourceText
             else {
+                return
+            }
+            guard !IsSecureEventInputEnabled() else {
+                self.clearDocumentContext()
                 return
             }
             self.latestTranslation = result
@@ -64,26 +71,32 @@ final class LinguaFlowInputController: IMKInputController {
             self.renderPanel(client: self.activeClient)
         }
         coordinator.onError = { [weak self] error in
-            guard let self else { return }
+            guard let self, self.isActive else { return }
+            guard !IsSecureEventInputEnabled() else {
+                self.clearDocumentContext()
+                return
+            }
             self.translationState = .message(error.localizedDescription)
             self.renderPanel(client: self.activeClient)
         }
     }
 
     override func activateServer(_ sender: Any!) {
+        if isActive {
+            clearDocumentContext()
+        }
         activeClient = sender as? any IMKTextInput
+        isActive = true
     }
 
     override func deactivateServer(_ sender: Any!) {
-        commitComposition(sender)
+        isActive = false
         clearDocumentContext()
-        panelController.hide(owner: self)
-        lastValidAnchor = nil
         activeClient = nil
     }
 
     override func commitComposition(_ sender: Any!) {
-        guard !currentPreedit.isEmpty, let engine else { return }
+        guard isActive, !IsSecureEventInputEnabled(), !currentPreedit.isEmpty, let engine else { return }
         let snapshot = engine.commitComposition()
         apply(snapshot, client: client(from: sender))
     }
@@ -109,8 +122,12 @@ final class LinguaFlowInputController: IMKInputController {
     }
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
-        guard let event, event.type == .keyDown else { return false }
+        guard isActive, let event, event.type == .keyDown else { return false }
         let client = client(from: sender)
+        if let current = activeClient, let client,
+           (current as AnyObject) !== (client as AnyObject) {
+            clearDocumentContext()
+        }
         activeClient = client
 
         if IsSecureEventInputEnabled() {
@@ -125,19 +142,22 @@ final class LinguaFlowInputController: IMKInputController {
             return false
         }
 
+        reconcileHostLineBreak(client: client)
         reconcileTrackedCaret(client: client)
         captureCaretAnchor(client: client)
 
-        if isReturn(event), modifiers.contains(.control), let translation = latestTranslation {
-            let prefix = modifiers.contains(.shift) ? "\n" : " "
-            client?.insertText(
-                prefix + translation.translatedText,
-                replacementRange: Self.notFoundRange
-            )
-            if product == .english {
-                clearDocumentContext()
-            }
+        if SentenceReplacementShortcut.matches(
+            keyCode: event.keyCode,
+            control: modifiers.contains(.control),
+            shift: modifiers.contains(.shift)
+        ) {
+            replaceCurrentSentence(client: client)
             return true
+        }
+
+        if isReturn(event), modifiers.contains(.control) {
+            clearDocumentContext()
+            return false
         }
 
         if event.keyCode == 117 {
@@ -160,7 +180,10 @@ final class LinguaFlowInputController: IMKInputController {
         apply(snapshot, client: client)
 
         if !snapshot.consumed {
-            if event.keyCode == 51, !modifiers.contains(.control) {
+            if isReturn(event), modifiers.isDisjoint(with: [.control, .command, .option]),
+               currentPreedit.isEmpty {
+                pendingHostLineBreak = expectedHostCaretLocation
+            } else if event.keyCode == 51, !modifiers.contains(.control) {
                 mirrorHostBackspace(client: client)
             } else if modifiers.contains(.control)
                 || isNavigationKey(event.keyCode)
@@ -170,6 +193,34 @@ final class LinguaFlowInputController: IMKInputController {
         }
 
         return snapshot.consumed
+    }
+
+    private func replaceCurrentSentence(client: (any IMKTextInput)?) {
+        guard let client,
+              let snapshot = sentenceBuffer.currentSnapshot,
+              let translation = latestTranslation,
+              let range = TrackedTextReplacement.sentenceRange(
+                  snapshot: snapshot,
+                  translation: translation,
+                  currentRevision: translationRevision,
+                  expectedCaret: expectedHostCaretLocation,
+                  selection: client.selectedRange(),
+                  hasComposition: !currentPreedit.isEmpty || hasHostMarkedText(client)
+              ),
+              client.attributedSubstring(from: range)?.string == snapshot.text
+        else {
+            translationState = .message("当前句暂不可替换")
+            renderPanel(client: client)
+            return
+        }
+
+        client.insertText(translation.translatedText, replacementRange: range)
+        clearDocumentContext()
+    }
+
+    private func hasHostMarkedText(_ client: any IMKTextInput) -> Bool {
+        let range = client.markedRange()
+        return range.location != NSNotFound && range.length > 0
     }
 
     private func apply(_ snapshot: RimeSnapshot, client: (any IMKTextInput)?) {
@@ -206,15 +257,27 @@ final class LinguaFlowInputController: IMKInputController {
             provisionalCandidate = nil
         }
 
+        let draft = LiveTranslationDraft.evaluate(
+            committed: sentenceBuffer.currentSnapshot,
+            provisionalCandidate: product == .chinese ? provisionalCandidate : nil
+        )
+        if draft == .overlong {
+            latestTranslation = nil
+            translationRevision &+= 1
+            translationSourceText = nil
+            translationState = .message("当前句超过 280 字")
+            coordinator.cancel()
+            renderPanel(client: client)
+            return
+        }
         let sourceText: String?
-        switch product {
-        case .chinese:
-            sourceText = LiveTranslationDraft.sourceText(
-                committed: sentenceBuffer.currentSnapshot,
-                provisionalCandidate: provisionalCandidate
-            )
-        case .english:
-            sourceText = sentenceBuffer.currentSnapshot?.text
+        if case .text(let text) = draft {
+            sourceText = text
+        } else {
+            sourceText = nil
+        }
+        if draft == .empty, translationSourceText == nil {
+            translationState = .hidden
         }
 
         if sourceText != translationSourceText {
@@ -260,8 +323,11 @@ final class LinguaFlowInputController: IMKInputController {
         )
 
         if !currentPreedit.isEmpty || !currentCandidates.isEmpty || translationState != .hidden {
+            captureCaretAnchor(client: client)
             showPanel(client: client)
+            startPositionRefresh()
         } else {
+            stopPositionRefresh()
             panelController.hide(owner: self)
         }
     }
@@ -269,7 +335,7 @@ final class LinguaFlowInputController: IMKInputController {
     private func showPanel(client: (any IMKTextInput)?) {
         guard let client else { return }
         guard let lastValidAnchor else {
-            panelController.hide(owner: self)
+            panelController.hide(owner: self, relinquishOwnership: false)
             return
         }
         panelController.show(
@@ -279,21 +345,51 @@ final class LinguaFlowInputController: IMKInputController {
         )
     }
 
-    private func captureCaretAnchor(client: (any IMKTextInput)?) {
-        guard let client else { return }
+    private func startPositionRefresh() {
+        guard positionRefreshTask == nil else { return }
+        positionRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, let self else { return }
+                self.refreshPanelPosition()
+            }
+        }
+    }
 
-        var lineHeightRect = NSRect.zero
-        _ = client.attributes(
-            forCharacterIndex: 0,
-            lineHeightRectangle: &lineHeightRect
-        )
+    private func stopPositionRefresh() {
+        positionRefreshTask?.cancel()
+        positionRefreshTask = nil
+    }
+
+    private func refreshPanelPosition() {
+        guard isActive, panelController.ownsPanel(self), let activeClient else {
+            stopPositionRefresh()
+            return
+        }
+        guard !IsSecureEventInputEnabled() else {
+            clearDocumentContext()
+            return
+        }
+        reconcileTrackedCaret(client: activeClient, isPositionRefresh: true)
+        guard panelController.ownsPanel(self) else { return }
+        captureCaretAnchor(client: activeClient)
+        showPanel(client: activeClient)
+    }
+
+    private func captureCaretAnchor(client: (any IMKTextInput)?) {
+        lastValidAnchor = nil
+        guard let client else { return }
 
         let markedRange = client.markedRange()
         let selectedRange = client.selectedRange()
         let preferredRanges = currentPreedit.isEmpty
             ? [selectedRange, markedRange]
             : [markedRange, selectedRange]
-        var candidates = [lineHeightRect]
+        var candidates: [NSRect] = []
         for range in preferredRanges where range.location != NSNotFound {
             let endLocation = range.location.addingReportingOverflow(range.length)
             guard !endLocation.overflow else { continue }
@@ -306,15 +402,24 @@ final class LinguaFlowInputController: IMKInputController {
             candidates.append(rect)
         }
 
-        if let anchor = UnifiedPanelLayout.firstUsableAnchor(
-            candidates: candidates,
-            visibleFrames: NSScreen.screens.map(\.frame)
-        ) {
-            lastValidAnchor = anchor
+        let frames = NSScreen.screens.map(\.frame)
+        lastValidAnchor = UnifiedPanelLayout.caretAnchor(candidates: candidates, visibleFrames: frames) {
+            // Index zero is relative to the inline session, or the current selection without one.
+            var lineHeightRect = NSRect.zero
+            _ = client.attributes(forCharacterIndex: 0, lineHeightRectangle: &lineHeightRect)
+            return lineHeightRect
         }
     }
 
     private func clearDocumentContext() {
+        stopPositionRefresh()
+        if !currentPreedit.isEmpty {
+            activeClient?.setMarkedText(
+                "",
+                selectionRange: NSRange(location: 0, length: 0),
+                replacementRange: Self.notFoundRange
+            )
+        }
         engine?.clear()
         currentPreedit = ""
         currentCandidates = []
@@ -334,6 +439,7 @@ final class LinguaFlowInputController: IMKInputController {
         translationState = .hidden
         spellingCorrection = nil
         expectedHostCaretLocation = nil
+        pendingHostLineBreak = nil
         spellCheckRevision &+= 1
         spellCheckTask?.cancel()
         spellCheckTask = nil
@@ -544,12 +650,28 @@ final class LinguaFlowInputController: IMKInputController {
         return String(compact.prefix(16)) + "…"
     }
 
-    private func reconcileTrackedCaret(client: (any IMKTextInput)?) {
+    private func reconcileHostLineBreak(client: (any IMKTextInput)?) {
+        guard let location = pendingHostLineBreak else { return }
+        pendingHostLineBreak = nil
+        guard let client,
+              client.selectedRange() == NSRange(location: location + 1, length: 0),
+              client.attributedSubstring(from: NSRange(location: location, length: 1))?.string == "\n"
+        else {
+            clearDocumentContext()
+            return
+        }
+        sentenceBuffer.append("\n")
+        expectedHostCaretLocation = location + 1
+        updateTranslationDraftAndPanel(client: client)
+    }
+
+    private func reconcileTrackedCaret(client: (any IMKTextInput)?, isPositionRefresh: Bool = false) {
         let action = TrackedCaretReconciliation.action(
             expectedCaretLocation: expectedHostCaretLocation,
             currentSelection: client?.selectedRange() ?? Self.notFoundRange,
             hasActiveComposition: !currentPreedit.isEmpty,
-            hasTrackedContext: sentenceBuffer.currentSnapshot != nil
+            hasTrackedContext: sentenceBuffer.currentSnapshot != nil,
+            isAwaitingHostLineBreak: isPositionRefresh && pendingHostLineBreak != nil
         )
         if action == .clearContext {
             clearDocumentContext()
@@ -722,7 +844,7 @@ final class LinguaFlowInputController: IMKInputController {
         let setupURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Helpers", isDirectory: true)
-            .appendingPathComponent("LinguaFlowSetup.app", isDirectory: true)
+            .appendingPathComponent("LinguaFlowDevSetup.app", isDirectory: true)
         NSWorkspace.shared.open(setupURL)
     }
 

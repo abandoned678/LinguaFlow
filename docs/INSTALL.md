@@ -1,25 +1,19 @@
 # LinguaFlow 安装包
 
-## 最终用户安装
+## 开发版安装
 
-双击 `LinguaFlow-<版本>-macOS-arm64.pkg`，按 macOS 安装器提示完成安装。安装包会将以下两套输入法一次安装到 `/Library/Input Methods`：
+日常开发在仓库根目录运行：
 
-- `LinguaFlow 中文`
-- `LinguaFlow English`
+```bash
+./scripts/install-local.sh
+./scripts/check-installed-input-sources.swift --local
+```
 
-两套应用均已内嵌 Rime 及其运行时依赖；中文输入法还随包携带其简体、香港与台湾字形转换所需的 OpenCC 配置和字典。最终用户不需要安装 Homebrew、librime 或 OpenCC。
+脚本将「LinguaFlow Dev 中文」安装到 `~/Library/Input Methods/LinguaFlowDev.app`。系统域测试包安装到 `/Library/Input Methods/LinguaFlowDev.app`，并尝试为当前桌面用户注册和启用。开发版使用独立的 Bundle ID 与 Rime 用户数据目录。旧版安装和迁移细节见 [0.2.2 版本说明](RELEASE_0.2.2.md)。
 
-安装包会把两套输入法固定到上述系统目录，并在构建时拒绝任何可重定位的输入法 Bundle。这样即使机器上曾安装过用户目录版本，macOS Installer 也不会把新文件静默重定位回旧路径。
+若菜单栏未显示该输入源，可在「系统设置 → 键盘 → 文本输入 → 编辑」中添加。第一次使用翻译前，从输入法菜单选择「准备本地中英翻译…」，按提示允许 Apple 下载设备端中英翻译模型。
 
-安装脚本使用公开的 Text Input Source API 为当前桌面用户注册并启用两套输入法，不直接改写 macOS 的偏好设置数据库。如果发现早期版本留在 `~/Library/Input Methods` 的同标识输入法，安装器会在新版落盘后迁移精确匹配的旧 `.app`，同时改用 `.app.disabled` 后缀，避免用户域旧版或备份继续被 LaunchServices 当作输入法发现；不会删除其他输入法。旧副本会移到 `~/Library/Application Support/LinguaFlow/Input Method Backups/`。迁移时不会主动注销同标识旧路径，避免 macOS 延迟处理注销通知时误删刚注册的系统副本；随后会强制注册系统路径并连续验证实际状态。如果 0.2.0 曾错误地留下 `root` 所有的用户目录副本，安装器会额外验证固定路径、非符号链接、版本、构建号、可执行文件和 Bundle ID，只改变该 Bundle 顶层目录的所有权，不递归修改内容，再以当前登录用户身份完成迁移。0.2.0 创建的旧备份也会按相同规则迁移并禁用。
-
-安装器只迁移当前登录账户中的早期副本；同一台 Mac 的其他账户如果曾安装开发版，需要登录对应账户后再次运行安装器，或手动移走该账户 `~/Library/Input Methods/` 下的旧副本。
-
-安装器成功启用输入源后，macOS 的“添加输入法”搜索页可能不再重复显示它们；请返回“系统设置 → 键盘 → 文本输入 → 编辑”的当前已启用列表，或直接查看菜单栏输入法菜单。如果列表没有立即刷新，请先关闭并重新打开系统设置，仍未出现时注销并重新登录。其他 macOS 用户首次使用时也需要在自己的账户中添加输入源。
-
-第一次使用翻译前，从 LinguaFlow 输入法菜单选择“准备本地中英翻译…”，按提示允许 Apple 下载设备端中英翻译模型。
-
-当前构建要求 macOS 26 或更新版本，并面向 Apple 芯片 Mac。
+构建面向 Apple 芯片 Mac。源码声明最低 macOS 26，本机 Homebrew librime 产物要求 macOS 27。宿主和系统兼容性记录见 [首版任务清单](MASTER_CHECKLIST.md)。
 
 ## 开发者构建
 
@@ -32,7 +26,7 @@ brew install librime
 
 产物写入 `.build/dist/`。
 
-安装后可用以下独立检查确认两套输入源均已启用、可选择，并且 LaunchServices 指向系统目录中的正式副本：
+安装后可用以下独立检查确认开发版中文输入源已启用、可选择，并且 LaunchServices 指向系统目录中的副本：
 
 ```bash
 ./scripts/check-installed-input-sources.swift

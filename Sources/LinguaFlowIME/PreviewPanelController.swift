@@ -64,6 +64,10 @@ final class PreviewPanelController {
         }
     }
 
+    func ownsPanel(_ owner: AnyObject) -> Bool {
+        activeOwner == ObjectIdentifier(owner)
+    }
+
     func show(owner: AnyObject, near anchor: NSRect, clientWindowLevel: CGWindowLevel?) {
         guard activeOwner == ObjectIdentifier(owner) else { return }
 
@@ -90,10 +94,10 @@ final class PreviewPanelController {
         }
     }
 
-    func hide(owner: AnyObject) {
+    func hide(owner: AnyObject, relinquishOwnership: Bool = true) {
         guard activeOwner == nil || activeOwner == ObjectIdentifier(owner) else { return }
         panel.orderOut(nil)
-        activeOwner = nil
+        if relinquishOwnership { activeOwner = nil }
     }
 }
 
@@ -249,7 +253,7 @@ private final class PreviewView: NSView {
                 - 34
             var height = max(20, textHeight(translationText, width: availableTextWidth))
             if case .result = translation {
-                widths.append(textWidth("⌃↩ 插入英文   ⇧⌃↩ 换行插入", font: shortcutFont) + 34)
+                widths.append(textWidth("\(SentenceReplacementShortcut.label) 替换当前句", font: shortcutFont) + 34)
                 height += 16
             }
             rowHeights.append(height)
@@ -327,9 +331,8 @@ private final class PreviewView: NSView {
         )
 
         if case .result = translation {
-            let targetName = direction == .chineseToEnglish ? "英文" : "中文"
             drawText(
-                "⌃↩ 插入\(targetName)   ⇧⌃↩ 换行插入",
+                "\(SentenceReplacementShortcut.label) 替换当前句",
                 in: NSRect(x: 46, y: y + height + 2, width: availableWidth, height: 14),
                 color: .tertiaryLabelColor,
                 font: shortcutFont,

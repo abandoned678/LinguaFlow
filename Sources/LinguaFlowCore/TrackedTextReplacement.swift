@@ -1,6 +1,28 @@
 import Foundation
 
 public enum TrackedTextReplacement {
+    public static func sentenceRange(
+        snapshot: SentenceSnapshot?,
+        translation: TranslationResult?,
+        currentRevision: UInt64,
+        expectedCaret: Int?,
+        selection: NSRange,
+        hasComposition: Bool
+    ) -> NSRange? {
+        guard !hasComposition,
+              let snapshot, !snapshot.text.isEmpty, !snapshot.isOverlong,
+              let translation, translation.revision == currentRevision,
+              translation.sourceText == snapshot.text,
+              !translation.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let expectedCaret, selection.location == expectedCaret
+        else { return nil }
+        return hostRange(
+            trackedText: snapshot.text,
+            trackedUTF16Range: NSRange(location: 0, length: snapshot.text.utf16.count),
+            currentSelection: selection
+        )
+    }
+
     public static func hostRange(
         trackedText: String,
         trackedUTF16Range: NSRange,

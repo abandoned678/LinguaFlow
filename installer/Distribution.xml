@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-  <title>LinguaFlow 双语输入法</title>
-  <organization>com.fufangjie</organization>
+  <title>LinguaFlow Dev 中文输入法</title>
+  <organization>com.abandoned678</organization>
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
   <options customize="never" require-scripts="false" hostArchitectures="@ARCHITECTURE@"/>
   <allowed-os-versions>
@@ -15,9 +15,9 @@
     <line choice="default"/>
   </choices-outline>
   <choice id="default" visible="false">
-    <pkg-ref id="com.fufangjie.pkg.LinguaFlow.input-methods"/>
+    <pkg-ref id="com.abandoned678.pkg.LinguaFlowDev.input-methods"/>
   </choice>
-  <pkg-ref id="com.fufangjie.pkg.LinguaFlow.input-methods"
+  <pkg-ref id="com.abandoned678.pkg.LinguaFlowDev.input-methods"
            version="@PACKAGE_VERSION@"
            onConclusion="none">LinguaFlow-input-methods.pkg</pkg-ref>
 </installer-gui-script>

@@ -129,7 +129,7 @@ final class CommittedSentenceBufferTests: XCTestCase {
     func testCapsContextByCharactersInsteadOfUtf8Bytes() {
         var buffer = CommittedSentenceBuffer(maxCharacters: 4)
 
-        XCTAssertEqual(buffer.append("甲乙丙丁戊"), .init(text: "乙丙丁戊", revision: 1, isFinal: false))
+        XCTAssertEqual(buffer.append("甲乙丙丁戊"), .init(text: "乙丙丁戊", revision: 1, isFinal: false, isOverlong: true))
     }
 
     func testWhitespaceOnlyCommitDoesNotCreateARequest() {

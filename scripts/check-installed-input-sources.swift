@@ -13,17 +13,14 @@ struct ExpectedInputSource {
 
 let expectedSources = [
     ExpectedInputSource(
-        identifier: "com.fufangjie.inputmethod.LinguaFlow",
-        path: "/Library/Input Methods/LinguaFlow.app",
-        executable: "LinguaFlowIME",
+        identifier: "com.abandoned678.inputmethod.LinguaFlowDev",
+        path: CommandLine.arguments.contains("--local")
+            ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Input Methods/LinguaFlowDev.app").path
+            : "/Library/Input Methods/LinguaFlowDev.app",
+        executable: "LinguaFlowDevIME",
         sourceInfoPlist: "Resources/Info.plist"
     ),
-    ExpectedInputSource(
-        identifier: "com.fufangjie.inputmethod.LinguaFlowEnglish",
-        path: "/Library/Input Methods/LinguaFlowEnglish.app",
-        executable: "LinguaFlowEnglishIME",
-        sourceInfoPlist: "Resources/English-Info.plist"
-    ),
+
 ]
 
 func stringProperty(_ source: TISInputSource, key: CFString) -> String? {
@@ -118,7 +115,7 @@ for expected in expectedSources {
 }
 
 if failures.isEmpty {
-    print("PASS: both LinguaFlow input sources are enabled, selectable, and system-resolved")
+    print("PASS: LinguaFlow Dev Chinese is enabled, selectable, and system-resolved")
     exit(0)
 }
 
