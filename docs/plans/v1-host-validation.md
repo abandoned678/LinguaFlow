@@ -13,3 +13,11 @@
 构建 `39829de` 安装至用户域 `~/Library/Input Methods/LinguaFlowDev.app`，身份为 `com.abandoned678.inputmethod.LinguaFlowDev`。自动注册后未启用，在系统设置添加后通过 `check-installed-input-sources.swift --local` 的路径、启用和可选检查。macOS 27.0.1，文本编辑 1.21。
 
 在空白文本编辑文稿选择开发输入源，输入合成拼音和空格，观察到拉丁字符直接上屏。系统日志显示开发 IME 启动并出现异常死亡通知。未观察到可用的 LinguaFlow 候选或预览，无法确认浮层位置或指定范围写入。文本编辑普通 Return 插入换行。Codex 的 IMK 回调、换行与替换范围支持仍待确认。最终验收需重试开发输入源启动和两个宿主。
+
+### E2 执行记录 · 2026-11-13
+
+**受阻，待实体按键复测。** macOS 27.0.1、文本编辑 1.21、`ea44d71` 用户域构建。开发输入源已启用、可选，且 LaunchServices 解析到 `~/Library/Input Methods/LinguaFlowDev.app`。
+
+在空白文稿用自动化逐键输入 `nihao`、空格及 Return，观察到拉丁字母和系统拼写提示，普通 Return 插入换行。临时诊断只记录回调和布尔状态，确认 `activateServer` 已调用，但该次自动化拼音按键未进入 `handle(_:client:)`。已移除诊断并重装正常构建。此前 E1 的拉丁输出同样不足以判断实体键盘组词。
+
+实体键盘需重新执行完整验收表。候选和分句、译文更新和失败提示、成功与拒绝替换、退格与换行对账、浮层定位、切换后清理、超长与持续输入目前均无充分宿主证据。核心、Rime 和本地模型自检结果见其他任务记录。
