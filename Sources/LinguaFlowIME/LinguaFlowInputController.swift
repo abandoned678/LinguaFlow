@@ -13,7 +13,7 @@ final class LinguaFlowInputController: IMKInputController {
     private var currentPreedit = ""
     private var currentCandidates: [RimeCandidate] = []
     private var currentHighlightedIndex = 0
-    private var sentenceBuffer = CommittedSentenceBuffer(maxCharacters: 280)
+    private lazy var sentenceBuffer = CommittedSentenceBuffer(maxCharacters: 280, periodEndsSentence: product == .english)
     private var latestTranslation: TranslationResult?
     private var translationRevision: UInt64 = 0
     private var translationSourceText: String?
@@ -22,6 +22,7 @@ final class LinguaFlowInputController: IMKInputController {
     private var spellCheckRevision: UInt64 = 0
     private var spellCheckTask: Task<Void, Never>?
     private var expectedHostCaretLocation: Int?
+    private var pendingHostLineBreak: Int?
     private let englishSpellChecker = EnglishSpellChecker()
     private var englishCandidateContext: EnglishCandidateContext?
     private var candidateMeaningRevision: UInt64 = 0
@@ -125,6 +126,7 @@ final class LinguaFlowInputController: IMKInputController {
             return false
         }
 
+        reconcileHostLineBreak(client: client)
         reconcileTrackedCaret(client: client)
         captureCaretAnchor(client: client)
 
@@ -160,7 +162,10 @@ final class LinguaFlowInputController: IMKInputController {
         apply(snapshot, client: client)
 
         if !snapshot.consumed {
-            if event.keyCode == 51, !modifiers.contains(.control) {
+            if isReturn(event), modifiers.isDisjoint(with: [.control, .command, .option]),
+               currentPreedit.isEmpty {
+                pendingHostLineBreak = expectedHostCaretLocation
+            } else if event.keyCode == 51, !modifiers.contains(.control) {
                 mirrorHostBackspace(client: client)
             } else if modifiers.contains(.control)
                 || isNavigationKey(event.keyCode)
@@ -334,6 +339,7 @@ final class LinguaFlowInputController: IMKInputController {
         translationState = .hidden
         spellingCorrection = nil
         expectedHostCaretLocation = nil
+        pendingHostLineBreak = nil
         spellCheckRevision &+= 1
         spellCheckTask?.cancel()
         spellCheckTask = nil
@@ -542,6 +548,21 @@ final class LinguaFlowInputController: IMKInputController {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard compact.count > 16 else { return compact }
         return String(compact.prefix(16)) + "…"
+    }
+
+    private func reconcileHostLineBreak(client: (any IMKTextInput)?) {
+        guard let location = pendingHostLineBreak else { return }
+        pendingHostLineBreak = nil
+        guard let client,
+              client.selectedRange() == NSRange(location: location + 1, length: 0),
+              client.attributedSubstring(from: NSRange(location: location, length: 1))?.string == "\n"
+        else {
+            clearDocumentContext()
+            return
+        }
+        sentenceBuffer.append("\n")
+        expectedHostCaretLocation = location + 1
+        updateTranslationDraftAndPanel(client: client)
     }
 
     private func reconcileTrackedCaret(client: (any IMKTextInput)?) {

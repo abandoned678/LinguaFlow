@@ -50,6 +50,19 @@ struct LinguaFlowCoreChecks {
             "mirror host backspace"
         )
 
+        var chineseBuffer = CommittedSentenceBuffer(maxCharacters: 80)
+        _ = chineseBuffer.append("价格3.")
+        try expect(chineseBuffer.append("14元，继续。下一句")?.text, "下一句", "track the last sentence in a single commit")
+        var decimalBuffer = CommittedSentenceBuffer(maxCharacters: 80)
+        _ = decimalBuffer.append("价格3.")
+        try expect(decimalBuffer.append("14元")?.text, "价格3.14元", "ASCII dot does not end a Chinese sentence")
+        _ = decimalBuffer.append("\n")
+        try expect(decimalBuffer.append("新行")?.text, "新行", "confirmed newline ends the sentence")
+        var reopened = CommittedSentenceBuffer(maxCharacters: 80)
+        _ = reopened.append("你好。！")
+        try expect(reopened.removeLastCharacter()?.isFinal, true, "backspace leaves the preceding sentence ending")
+        try expect(reopened.append("再见")?.text, "再见", "start a fresh sentence after backspacing a terminal mark")
+
         var deletionBuffer = CommittedSentenceBuffer(maxCharacters: 80)
         _ = deletionBuffer.append("我们需要")
         try expect(deletionBuffer.removeLastCharacter()?.text, "我们需", "delete one character")
@@ -109,7 +122,7 @@ struct LinguaFlowCoreChecks {
             "clear tracked context when the host caret is unavailable"
         )
 
-        var englishBuffer = CommittedSentenceBuffer(maxCharacters: 80)
+        var englishBuffer = CommittedSentenceBuffer(maxCharacters: 80, periodEndsSentence: true)
         _ = englishBuffer.append("I")
         _ = englishBuffer.append(" ")
         _ = englishBuffer.append("recieved")
