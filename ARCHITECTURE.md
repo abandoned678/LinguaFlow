@@ -115,7 +115,7 @@ sequenceDiagram
 | `currentPreedit`／高亮候选 | Rime 正在进行的组词 | 宿主 marked text 和浮层候选；尚未上屏。 |
 | `translationSourceText` | [LiveTranslationDraft](Sources/LinguaFlowCore/LiveTranslationDraft.swift) 的计算结果 | 翻译源可能包含未上屏高亮候选，不等同于缓冲原文或一个已验证的宿主替换范围。 |
 
-[CommittedSentenceBuffer](Sources/LinguaFlowCore/CommittedSentenceBuffer.swift) 逐字符处理提交块。中文以 `。！？!?` 和换行收尾。下一句开始时切换上下文。宿主透传的换行需在后续事件中对账确认。
+[CommittedSentenceBuffer](Sources/LinguaFlowCore/CommittedSentenceBuffer.swift) 逐字符处理提交块。中文以 `。！？!?` 和换行收尾。下一句开始时切换上下文。宿主透传的换行需在后续事件中对账确认。组词已结束时，Rime 将空格透传给宿主。宿主插入空格后的光标位置与已追踪句尾不一致，光标对账会清除旧上下文。
 
 组词时，[LiveTranslationDraft](Sources/LinguaFlowCore/LiveTranslationDraft.swift) 将当前高亮候选纳入翻译源。前一句已结束时从新候选开始。当前句或拼接后的草稿超过 280 个字符时，显示过长状态，取消预览请求并清除可替换译文。
 
