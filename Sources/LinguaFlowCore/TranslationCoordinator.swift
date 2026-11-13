@@ -80,7 +80,7 @@ public final class TranslationCoordinator {
             } catch is CancellationError {
                 return
             } catch {
-                guard let self, self.activeRevision == request.revision else { return }
+                guard !Task.isCancelled, let self, self.activeRevision == request.revision else { return }
                 self.onError?(error)
             }
         }

@@ -8,6 +8,7 @@ import LinguaFlowRime
 @MainActor
 final class LinguaFlowInputController: IMKInputController {
     private let product = InputProduct.current
+    private var isActive = false
     private var activeClient: (any IMKTextInput)?
     private var engine: RimeEngine?
     private var currentPreedit = ""
@@ -54,10 +55,14 @@ final class LinguaFlowInputController: IMKInputController {
         }
         coordinator.onResult = { [weak self] result in
             guard
-                let self,
+                let self, self.isActive,
                 self.translationRevision == result.revision,
                 self.translationSourceText == result.sourceText
             else {
+                return
+            }
+            guard !IsSecureEventInputEnabled() else {
+                self.clearDocumentContext()
                 return
             }
             self.latestTranslation = result
@@ -65,26 +70,32 @@ final class LinguaFlowInputController: IMKInputController {
             self.renderPanel(client: self.activeClient)
         }
         coordinator.onError = { [weak self] error in
-            guard let self else { return }
+            guard let self, self.isActive else { return }
+            guard !IsSecureEventInputEnabled() else {
+                self.clearDocumentContext()
+                return
+            }
             self.translationState = .message(error.localizedDescription)
             self.renderPanel(client: self.activeClient)
         }
     }
 
     override func activateServer(_ sender: Any!) {
+        if isActive {
+            clearDocumentContext()
+        }
         activeClient = sender as? any IMKTextInput
+        isActive = true
     }
 
     override func deactivateServer(_ sender: Any!) {
-        commitComposition(sender)
+        isActive = false
         clearDocumentContext()
-        panelController.hide(owner: self)
-        lastValidAnchor = nil
         activeClient = nil
     }
 
     override func commitComposition(_ sender: Any!) {
-        guard !currentPreedit.isEmpty, let engine else { return }
+        guard isActive, !IsSecureEventInputEnabled(), !currentPreedit.isEmpty, let engine else { return }
         let snapshot = engine.commitComposition()
         apply(snapshot, client: client(from: sender))
     }
@@ -110,8 +121,12 @@ final class LinguaFlowInputController: IMKInputController {
     }
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
-        guard let event, event.type == .keyDown else { return false }
+        guard isActive, let event, event.type == .keyDown else { return false }
         let client = client(from: sender)
+        if let current = activeClient, let client,
+           (current as AnyObject) !== (client as AnyObject) {
+            clearDocumentContext()
+        }
         activeClient = client
 
         if IsSecureEventInputEnabled() {
@@ -337,6 +352,13 @@ final class LinguaFlowInputController: IMKInputController {
     }
 
     private func clearDocumentContext() {
+        if !currentPreedit.isEmpty {
+            activeClient?.setMarkedText(
+                "",
+                selectionRange: NSRange(location: 0, length: 0),
+                replacementRange: Self.notFoundRange
+            )
+        }
         engine?.clear()
         currentPreedit = ""
         currentCandidates = []
