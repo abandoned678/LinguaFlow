@@ -308,22 +308,22 @@ struct LinguaFlowCoreChecks {
             contentWidths: [42, 156, 38],
             rowHeights: [20, 30, 20]
         )
-        try expect(compactSize.width <= 260, true, "short content stays compact")
-        try expect(compactSize.height, 102, "three rows use stable spacing")
+        try expect(compactSize.width, 168, "short content stays compact")
+        try expect(compactSize.height, 84, "three rows use stable spacing")
 
         let below = UnifiedPanelLayout.origin(
             anchor: .init(x: 480, y: 420, width: 0, height: 22),
             panelSize: .init(width: 240, height: 102),
             visibleFrame: .init(x: 0, y: 0, width: 1440, height: 900)
         )
-        try expect(below, .init(x: 480, y: 312), "place panel below the insertion point")
+        try expect(below, .init(x: 480, y: 316), "place panel below the insertion point")
 
         let above = UnifiedPanelLayout.origin(
             anchor: .init(x: 480, y: 18, width: 0, height: 22),
             panelSize: .init(width: 240, height: 102),
             visibleFrame: .init(x: 0, y: 0, width: 1440, height: 900)
         )
-        try expect(above, .init(x: 480, y: 46), "flip above near the screen bottom")
+        try expect(above, .init(x: 480, y: 42), "flip above near the screen bottom")
 
         let inlineCaret = CGRect(x: 906, y: 580, width: 1, height: 24)
         try expect(

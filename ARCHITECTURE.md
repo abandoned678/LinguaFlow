@@ -155,7 +155,7 @@ sequenceDiagram
 
 [PreviewPanelController](Sources/LinguaFlowIME/PreviewPanelController.swift) 使用不激活宿主焦点的 `NSPanel`，忽略鼠标事件，通过 `PreviewView` 自绘已上屏源文、最多 5 个候选、译文／状态及现有英文纠错。候选暂时依赖键盘选择。
 
-几何算法 [UnifiedPanelLayout](Sources/LinguaFlowCore/LiveTranslationDraft.swift) 放在 Core 中供检查程序测试：宽度限制为 220–440 点，优先在锚点下方显示，空间不足时翻到上方，并约束在目标屏幕的 `visibleFrame` 内。窗口层级按宿主窗口层级加一设置。
+几何算法 [UnifiedPanelLayout](Sources/LinguaFlowCore/LiveTranslationDraft.swift) 放在 Core 中供检查程序测试：宽度限制为 160–440 点，优先在锚点下方显示，空间不足时翻到上方，并约束在目标屏幕的 `visibleFrame` 内。窗口层级按宿主窗口层级加一设置。
 
 `captureCaretAnchor()` 优先使用当前 marked 或 selected range 末尾的 `firstRect`。精确矩形无效时，尝试当前组词起点或选区对应的行矩形。无有效锚点时清除缓存并隐藏浮层。浮层属于当前活跃会话时，每 250ms 重采样位置与光标，用于处理宿主可观察的窗口移动或滚动。
 

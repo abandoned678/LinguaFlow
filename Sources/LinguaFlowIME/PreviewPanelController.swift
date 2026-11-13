@@ -103,7 +103,7 @@ final class PreviewPanelController {
 
 @MainActor
 private final class PreviewView: NSView {
-    private(set) var preferredSize = NSSize(width: 220, height: 48)
+    private(set) var preferredSize = NSSize(width: UnifiedPanelLayout.minimumWidth, height: 28)
     private var isComposing = false
     private var sourceText: String?
     private var candidates: [RimeCandidate] = []
@@ -115,6 +115,14 @@ private final class PreviewView: NSView {
     private let regularFont = NSFont.systemFont(ofSize: 14)
     private let labelFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     private let shortcutFont = NSFont.systemFont(ofSize: 10)
+    private let labelColumnWidth: CGFloat = 26
+    private let candidateHeight: CGFloat = 23
+    private let candidateGap: CGFloat = 4
+    private let candidateInset: CGFloat = 5
+
+    private var contentX: CGFloat { UnifiedPanelLayout.horizontalPadding }
+    private var valueX: CGFloat { contentX + labelColumnWidth }
+    private var valueWidth: CGFloat { bounds.width - valueX - contentX }
 
     override var isFlipped: Bool { true }
 
@@ -164,7 +172,7 @@ private final class PreviewView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let background = NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10)
+        let background = NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6)
         NSColor.windowBackgroundColor.withAlphaComponent(0.98).setFill()
         background.fill()
         NSColor.separatorColor.withAlphaComponent(0.55).setStroke()
@@ -191,8 +199,8 @@ private final class PreviewView: NSView {
             if headerContent != nil || !candidates.isEmpty || spellingCorrection != nil {
                 NSColor.separatorColor.withAlphaComponent(0.7).setStroke()
                 let divider = NSBezierPath()
-                divider.move(to: NSPoint(x: 10, y: y - 2))
-                divider.line(to: NSPoint(x: bounds.width - 10, y: y - 2))
+                divider.move(to: NSPoint(x: contentX, y: y - UnifiedPanelLayout.rowSpacing / 2))
+                divider.line(to: NSPoint(x: bounds.width - contentX, y: y - UnifiedPanelLayout.rowSpacing / 2))
                 divider.lineWidth = 0.5
                 divider.stroke()
             }
@@ -221,7 +229,7 @@ private final class PreviewView: NSView {
         var rowHeights: [CGFloat] = []
 
         if let header = headerContent {
-            widths.append(labeledTextWidth(label: header.label, value: header.value))
+            widths.append(labeledTextWidth(header.value))
             rowHeights.append(20)
         }
         if !candidates.isEmpty {
@@ -231,24 +239,25 @@ private final class PreviewView: NSView {
         if let spellingCorrection {
             widths.append(
                 labeledTextWidth(
-                    label: "纠错",
-                    value: "\(spellingCorrection.original) → \(spellingCorrection.replacement)   Tab 接受"
+                    "\(spellingCorrection.original) → \(spellingCorrection.replacement)   Tab 接受"
                 )
             )
             rowHeights.append(20)
         }
         if let translationText {
-            widths.append(labeledTextWidth(label: direction.targetLabel, value: translationText))
+            widths.append(labeledTextWidth(translationText))
+            if case .result = translation {
+                widths.append(textWidth("\(SentenceReplacementShortcut.label) 替换当前句", font: shortcutFont) + labelColumnWidth)
+            }
             let provisionalSize = UnifiedPanelLayout.size(
                 contentWidths: widths,
                 rowHeights: rowHeights + [20]
             )
             let availableTextWidth = provisionalSize.width
-                - UnifiedPanelLayout.horizontalPadding * 2
-                - 34
+                - contentX * 2
+                - labelColumnWidth
             var height = max(20, textHeight(translationText, width: availableTextWidth))
             if case .result = translation {
-                widths.append(textWidth("\(SentenceReplacementShortcut.label) 替换当前句", font: shortcutFont) + 34)
                 height += 16
             }
             rowHeights.append(height)
@@ -260,14 +269,14 @@ private final class PreviewView: NSView {
     private func drawLabeledText(label: String, value: String, y: CGFloat) {
         drawText(
             label,
-            in: NSRect(x: 12, y: y + 2, width: 30, height: 18),
+            in: NSRect(x: contentX, y: y + 2, width: labelColumnWidth - 2, height: 18),
             color: .secondaryLabelColor,
             font: labelFont,
             lineBreakMode: .byClipping
         )
         drawText(
             value,
-            in: NSRect(x: 46, y: y, width: bounds.width - 58, height: 20),
+            in: NSRect(x: valueX, y: y, width: valueWidth, height: 20),
             color: .labelColor,
             font: regularFont,
             lineBreakMode: .byTruncatingTail
@@ -284,9 +293,9 @@ private final class PreviewView: NSView {
             let width = min(naturalWidth, maximumCandidateContentWidth)
             if x > UnifiedPanelLayout.horizontalPadding, x + width > maximumX {
                 x = UnifiedPanelLayout.horizontalPadding
-                rowY += 28 + UnifiedPanelLayout.rowSpacing
+                rowY += candidateHeight + UnifiedPanelLayout.rowSpacing
             }
-            let rect = NSRect(x: x, y: rowY, width: width, height: 28)
+            let rect = NSRect(x: x, y: rowY, width: width, height: candidateHeight)
 
             if index == highlightedIndex {
                 NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
@@ -294,12 +303,12 @@ private final class PreviewView: NSView {
             }
             drawText(
                 title,
-                in: rect.insetBy(dx: 8, dy: 4),
+                in: rect.insetBy(dx: candidateInset, dy: 2),
                 color: index == highlightedIndex ? .controlAccentColor : .labelColor,
                 font: regularFont,
                 lineBreakMode: .byTruncatingTail
             )
-            x += width + 6
+            x += width + candidateGap
         }
     }
 
@@ -308,18 +317,18 @@ private final class PreviewView: NSView {
 
         drawText(
             direction.targetLabel,
-            in: NSRect(x: 12, y: y + 2, width: 30, height: 18),
+            in: NSRect(x: contentX, y: y + 2, width: labelColumnWidth - 2, height: 18),
             color: .secondaryLabelColor,
             font: labelFont,
             lineBreakMode: .byClipping
         )
 
-        let availableWidth = bounds.width - 58
+        let availableWidth = valueWidth
         let height = textHeight(translationText, width: availableWidth)
         let color: NSColor = translation == .loading ? .secondaryLabelColor : .labelColor
         drawText(
             translationText,
-            in: NSRect(x: 46, y: y, width: availableWidth, height: height),
+            in: NSRect(x: valueX, y: y, width: availableWidth, height: height),
             color: color,
             font: regularFont,
             lineBreakMode: .byWordWrapping
@@ -328,7 +337,7 @@ private final class PreviewView: NSView {
         if case .result = translation {
             drawText(
                 "\(SentenceReplacementShortcut.label) 替换当前句",
-                in: NSRect(x: 46, y: y + height + 2, width: availableWidth, height: 14),
+                in: NSRect(x: valueX, y: y + height + 2, width: availableWidth, height: 14),
                 color: .tertiaryLabelColor,
                 font: shortcutFont,
                 lineBreakMode: .byClipping
@@ -339,14 +348,14 @@ private final class PreviewView: NSView {
     private func drawCorrection(_ correction: EnglishSpellingCorrection, y: CGFloat) {
         drawText(
             "纠错",
-            in: NSRect(x: 12, y: y + 2, width: 30, height: 18),
+            in: NSRect(x: contentX, y: y + 2, width: labelColumnWidth - 2, height: 18),
             color: .systemOrange,
             font: labelFont,
             lineBreakMode: .byClipping
         )
         drawText(
             "\(correction.original) → \(correction.replacement)   Tab 接受",
-            in: NSRect(x: 46, y: y, width: bounds.width - 58, height: 20),
+            in: NSRect(x: valueX, y: y, width: valueWidth, height: 20),
             color: .labelColor,
             font: regularFont,
             lineBreakMode: .byTruncatingTail
@@ -357,7 +366,7 @@ private final class PreviewView: NSView {
         let widths = candidates.enumerated().map { index, candidate in
             candidateWidth(at: index, candidate: candidate)
         }
-        return widths.reduce(0, +) + CGFloat(max(0, widths.count - 1)) * 6
+        return widths.reduce(0, +) + CGFloat(max(0, widths.count - 1)) * candidateGap
     }
 
     private var candidateRowHeight: CGFloat {
@@ -369,7 +378,7 @@ private final class PreviewView: NSView {
                 candidateWidth(at: index, candidate: candidate),
                 maximumCandidateContentWidth
             )
-            let requiredWidth = occupiedWidth == 0 ? width : occupiedWidth + 6 + width
+            let requiredWidth = occupiedWidth == 0 ? width : occupiedWidth + candidateGap + width
             if occupiedWidth > 0, requiredWidth > maximumCandidateContentWidth {
                 rows += 1
                 occupiedWidth = width
@@ -378,7 +387,7 @@ private final class PreviewView: NSView {
             }
         }
 
-        return CGFloat(rows) * 28 + CGFloat(max(0, rows - 1)) * UnifiedPanelLayout.rowSpacing
+        return CGFloat(rows) * candidateHeight + CGFloat(max(0, rows - 1)) * UnifiedPanelLayout.rowSpacing
     }
 
     private var maximumCandidateContentWidth: CGFloat {
@@ -386,7 +395,7 @@ private final class PreviewView: NSView {
     }
 
     private func candidateWidth(at index: Int, candidate: RimeCandidate) -> CGFloat {
-        textWidth(candidateTitle(at: index, candidate: candidate), font: regularFont) + 16
+        textWidth(candidateTitle(at: index, candidate: candidate), font: regularFont) + candidateInset * 2
     }
 
     private func candidateTitle(at index: Int, candidate: RimeCandidate) -> String {
@@ -401,8 +410,8 @@ private final class PreviewView: NSView {
         return "\(prefix) · \(comment)"
     }
 
-    private func labeledTextWidth(label: String, value: String) -> CGFloat {
-        34 + textWidth(value, font: regularFont)
+    private func labeledTextWidth(_ value: String) -> CGFloat {
+        labelColumnWidth + textWidth(value, font: regularFont)
     }
 
     private func textWidth(_ text: String, font: NSFont) -> CGFloat {
