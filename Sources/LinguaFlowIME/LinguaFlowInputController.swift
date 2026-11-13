@@ -297,20 +297,15 @@ final class LinguaFlowInputController: IMKInputController {
     }
 
     private func captureCaretAnchor(client: (any IMKTextInput)?) {
+        lastValidAnchor = nil
         guard let client else { return }
-
-        var lineHeightRect = NSRect.zero
-        _ = client.attributes(
-            forCharacterIndex: 0,
-            lineHeightRectangle: &lineHeightRect
-        )
 
         let markedRange = client.markedRange()
         let selectedRange = client.selectedRange()
         let preferredRanges = currentPreedit.isEmpty
             ? [selectedRange, markedRange]
             : [markedRange, selectedRange]
-        var candidates = [lineHeightRect]
+        var candidates: [NSRect] = []
         for range in preferredRanges where range.location != NSNotFound {
             let endLocation = range.location.addingReportingOverflow(range.length)
             guard !endLocation.overflow else { continue }
@@ -323,12 +318,22 @@ final class LinguaFlowInputController: IMKInputController {
             candidates.append(rect)
         }
 
-        if let anchor = UnifiedPanelLayout.firstUsableAnchor(
-            candidates: candidates,
-            visibleFrames: NSScreen.screens.map(\.frame)
-        ) {
+        let frames = NSScreen.screens.map(\.frame)
+        if let anchor = UnifiedPanelLayout.firstUsableAnchor(candidates: candidates, visibleFrames: frames) {
             lastValidAnchor = anchor
+            return
         }
+
+        // A document-start rectangle is only relevant when the current range starts there.
+        guard let currentRange = preferredRanges.first(where: { $0.location != NSNotFound }),
+              currentRange.location == 0 else { return }
+        var lineHeightRect = NSRect.zero
+        _ = client.attributes(forCharacterIndex: 0, lineHeightRectangle: &lineHeightRect)
+        lastValidAnchor = UnifiedPanelLayout.firstUsableAnchor(
+            candidates: [],
+            fallback: lineHeightRect,
+            visibleFrames: frames
+        )
     }
 
     private func clearDocumentContext() {

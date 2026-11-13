@@ -80,9 +80,10 @@ public enum UnifiedPanelLayout {
 
     public static func firstUsableAnchor(
         candidates: [CGRect],
+        fallback: CGRect? = nil,
         visibleFrames: [CGRect]
     ) -> CGRect? {
-        candidates.first { rect in
+        (candidates + [fallback].compactMap { $0 }).first { rect in
             guard
                 rect.origin.x.isFinite,
                 rect.origin.y.isFinite,

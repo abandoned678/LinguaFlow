@@ -325,10 +325,10 @@ struct LinguaFlowCoreChecks {
         try expect(above, .init(x: 480, y: 46), "flip above near the screen bottom")
 
         let inlineCaret = CGRect(x: 906, y: 580, width: 1, height: 24)
-        let documentFallback = CGRect(x: 0, y: 0, width: 1, height: 24)
         try expect(
             UnifiedPanelLayout.firstUsableAnchor(
-                candidates: [inlineCaret, documentFallback],
+                candidates: [inlineCaret],
+                fallback: .init(x: 12, y: 800, width: 1, height: 24),
                 visibleFrames: [.init(x: 0, y: 0, width: 1440, height: 900)]
             ),
             inlineCaret,
@@ -337,6 +337,7 @@ struct LinguaFlowCoreChecks {
         try expect(
             UnifiedPanelLayout.firstUsableAnchor(
                 candidates: [.zero],
+                fallback: .zero,
                 visibleFrames: [.init(x: 0, y: 0, width: 1440, height: 900)]
             ),
             nil,
