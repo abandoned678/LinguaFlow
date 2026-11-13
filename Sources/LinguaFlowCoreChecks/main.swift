@@ -271,6 +271,25 @@ struct LinguaFlowCoreChecks {
             "do not mix a finished sentence into the next live preview"
         )
 
+        var committedCandidate = CommittedSentenceBuffer()
+        _ = committedCandidate.append("我想")
+        try expect(
+            LiveTranslationDraft.sourceText(committed: committedCandidate.currentSnapshot, provisionalCandidate: "去公园"),
+            "我想去公园",
+            "preview the first candidate without committing it"
+        )
+        try expect(
+            LiveTranslationDraft.sourceText(committed: committedCandidate.currentSnapshot, provisionalCandidate: "去图书馆"),
+            "我想去图书馆",
+            "switch the provisional candidate independently of the buffer"
+        )
+        _ = committedCandidate.append("去学校")
+        try expect(
+            LiveTranslationDraft.sourceText(committed: committedCandidate.currentSnapshot, provisionalCandidate: nil),
+            "我想去学校",
+            "use the actual Rime commit after composition"
+        )
+
         let compactSize = UnifiedPanelLayout.size(
             contentWidths: [42, 156, 38],
             rowHeights: [20, 30, 20]
