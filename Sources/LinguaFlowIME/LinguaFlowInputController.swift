@@ -403,21 +403,12 @@ final class LinguaFlowInputController: IMKInputController {
         }
 
         let frames = NSScreen.screens.map(\.frame)
-        if let anchor = UnifiedPanelLayout.firstUsableAnchor(candidates: candidates, visibleFrames: frames) {
-            lastValidAnchor = anchor
-            return
+        lastValidAnchor = UnifiedPanelLayout.caretAnchor(candidates: candidates, visibleFrames: frames) {
+            // Index zero is relative to the inline session, or the current selection without one.
+            var lineHeightRect = NSRect.zero
+            _ = client.attributes(forCharacterIndex: 0, lineHeightRectangle: &lineHeightRect)
+            return lineHeightRect
         }
-
-        // A document-start rectangle is only relevant when the current range starts there.
-        guard let currentRange = preferredRanges.first(where: { $0.location != NSNotFound }),
-              currentRange.location == 0 else { return }
-        var lineHeightRect = NSRect.zero
-        _ = client.attributes(forCharacterIndex: 0, lineHeightRectangle: &lineHeightRect)
-        lastValidAnchor = UnifiedPanelLayout.firstUsableAnchor(
-            candidates: [],
-            fallback: lineHeightRect,
-            visibleFrames: frames
-        )
     }
 
     private func clearDocumentContext() {

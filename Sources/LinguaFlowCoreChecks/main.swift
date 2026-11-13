@@ -346,6 +346,16 @@ struct LinguaFlowCoreChecks {
         )
 
         try expect(
+            UnifiedPanelLayout.caretAnchor(
+                candidates: [.zero, .zero],
+                visibleFrames: [.init(x: 0, y: 0, width: 1440, height: 900)],
+                currentLineRect: { inlineCaret }
+            ),
+            inlineCaret,
+            "use the current inline line when document-relative rectangles fail after a line break"
+        )
+
+        try expect(
             TrackedCaretReconciliation.action(
                 expectedCaretLocation: 24,
                 currentSelection: NSRange(location: 20, length: 4),

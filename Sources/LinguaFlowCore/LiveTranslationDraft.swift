@@ -78,6 +78,17 @@ public enum UnifiedPanelLayout {
         return CGPoint(x: x, y: y)
     }
 
+    public static func caretAnchor(
+        candidates: [CGRect],
+        visibleFrames: [CGRect],
+        currentLineRect: () -> CGRect
+    ) -> CGRect? {
+        if let anchor = firstUsableAnchor(candidates: candidates, visibleFrames: visibleFrames) {
+            return anchor
+        }
+        return firstUsableAnchor(candidates: [], fallback: currentLineRect(), visibleFrames: visibleFrames)
+    }
+
     public static func firstUsableAnchor(
         candidates: [CGRect],
         fallback: CGRect? = nil,
