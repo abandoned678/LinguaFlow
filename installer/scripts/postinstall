@@ -7,9 +7,7 @@ target_root=${target_volume%/}
 [[ -n "$target_root" ]] || target_root=/
 
 chinese_app="$target_root/Library/Input Methods/LinguaFlowDev.app"
-english_app="$target_root/Library/Input Methods/LinguaFlowDevEnglish.app"
 chinese_binary="$chinese_app/Contents/MacOS/LinguaFlowDevIME"
-english_binary="$english_app/Contents/MacOS/LinguaFlowDevEnglishIME"
 lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 if [[ "$target_root" != / ]]; then
@@ -31,12 +29,12 @@ if [[ -z "$console_uid" || -z "$console_gid" ]]; then
 fi
 
 run_as_console_user() {
-  /bin/launchctl asuser "$console_uid"     /usr/bin/sudo -H -u "$console_user" "$@"
+  /bin/launchctl asuser "$console_uid" \
+    /usr/bin/sudo -H -u "$console_user" "$@"
 }
 
 if [[ -x "$lsregister" ]]; then
   run_as_console_user "$lsregister" -f "$chinese_app" >/dev/null 2>&1 || true
-  run_as_console_user "$lsregister" -f "$english_app" >/dev/null 2>&1 || true
 fi
 
 install_and_verify() {
@@ -60,7 +58,6 @@ install_and_verify() {
 }
 
 install_and_verify "$chinese_binary" "LinguaFlow Dev 中文" || true
-install_and_verify "$english_binary" "LinguaFlow Dev English" || true
 
 # A second fresh-process check catches the former false-success case where TIS
 # returned noErr and a delayed stale-path notification removed the source after
@@ -69,13 +66,9 @@ install_and_verify "$english_binary" "LinguaFlow Dev English" || true
 if ! run_as_console_user "$chinese_binary" --verify-input-source; then
   install_and_verify "$chinese_binary" "LinguaFlow Dev 中文" || true
 fi
-if ! run_as_console_user "$english_binary" --verify-input-source; then
-  install_and_verify "$english_binary" "LinguaFlow Dev English" || true
-fi
 
 registration_failed=0
 run_as_console_user "$chinese_binary" --verify-input-source || registration_failed=1
-run_as_console_user "$english_binary" --verify-input-source || registration_failed=1
 if [[ "$registration_failed" -ne 0 ]]; then
   echo "LinguaFlow files were installed, but macOS deferred one or more input sources until the next login." >&2
 fi

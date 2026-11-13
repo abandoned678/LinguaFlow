@@ -81,8 +81,6 @@ enum LinguaFlowApplication {
         switch bundleIdentifier {
         case "com.abandoned678.inputmethod.LinguaFlowDev":
             bundleName = "LinguaFlowDev.app"
-        case "com.abandoned678.inputmethod.LinguaFlowDevEnglish":
-            bundleName = "LinguaFlowDevEnglish.app"
         default:
             return false
         }

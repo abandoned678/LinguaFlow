@@ -40,3 +40,7 @@ Release 构建、plist、签名和两套开发产物的身份检查通过。Core
 ## A3 仅提供中文
 
 核对 `build-app.sh`、`build-installer.sh`、`install-local.sh`、`installer/` 和 `check-installed-input-sources.swift`，在同一提交收敛组装、负载、注册及检查目标。可以保留英文相关源码。构建两项产品并检查安装包清单、中文资源、内嵌依赖及许可。用残留英文产物的构建目录再核对负载，确认注册脚本只针对开发版中文身份。
+
+### A3 执行记录
+
+Release 构建、Core 和 Rime 自检通过。展开 arm64 安装包验证固定安装路径和中文身份，检查负载含设置助手、librime、OpenCC 和许可证。构建目录仍有英文开发产物，安装包只包含中文开发输入源。当前 Xcode 的组件清单可能缺少 `BundleIsRelocatable`，脚本在该情况下添加该键，再检查生成包的不可重定位元数据。
