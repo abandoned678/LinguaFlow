@@ -146,14 +146,9 @@ final class LinguaFlowInputController: IMKInputController {
         reconcileTrackedCaret(client: client)
         captureCaretAnchor(client: client)
 
-        if isReturn(event), modifiers.contains(.control), let translation = latestTranslation {
-            let prefix = modifiers.contains(.shift) ? "\n" : " "
-            client?.insertText(
-                prefix + translation.translatedText,
-                replacementRange: Self.notFoundRange
-            )
-            if product == .english {
-                clearDocumentContext()
+        if isReturn(event), modifiers.contains(.control) {
+            if !modifiers.contains(.shift) {
+                replaceCurrentSentence(client: client)
             }
             return true
         }
@@ -191,6 +186,34 @@ final class LinguaFlowInputController: IMKInputController {
         }
 
         return snapshot.consumed
+    }
+
+    private func replaceCurrentSentence(client: (any IMKTextInput)?) {
+        guard let client,
+              let snapshot = sentenceBuffer.currentSnapshot,
+              let translation = latestTranslation,
+              let range = TrackedTextReplacement.sentenceRange(
+                  snapshot: snapshot,
+                  translation: translation,
+                  currentRevision: translationRevision,
+                  expectedCaret: expectedHostCaretLocation,
+                  selection: client.selectedRange(),
+                  hasComposition: !currentPreedit.isEmpty || hasHostMarkedText(client)
+              ),
+              client.attributedSubstring(from: range)?.string == snapshot.text
+        else {
+            translationState = .message("当前句暂不可替换")
+            renderPanel(client: client)
+            return
+        }
+
+        client.insertText(translation.translatedText, replacementRange: range)
+        clearDocumentContext()
+    }
+
+    private func hasHostMarkedText(_ client: any IMKTextInput) -> Bool {
+        let range = client.markedRange()
+        return range.location != NSNotFound && range.length > 0
     }
 
     private func apply(_ snapshot: RimeSnapshot, client: (any IMKTextInput)?) {

@@ -356,6 +356,42 @@ struct LinguaFlowCoreChecks {
             "position refresh defers reconciliation until the pending host edit can be checked"
         )
 
+        let original = "你好👋🏽。"
+        let sentence = SentenceSnapshot(text: original, revision: 1, isFinal: true)
+        let currentResult = TranslationResult(sourceText: original, translatedText: "Hello.", revision: 5)
+        let caret = 12 + original.utf16.count
+        let collapsed = NSRange(location: caret, length: 0)
+        try expect(
+            TrackedTextReplacement.sentenceRange(snapshot: sentence, translation: currentResult, currentRevision: 5, expectedCaret: caret, selection: collapsed, hasComposition: false),
+            NSRange(location: 12, length: original.utf16.count),
+            "map only the tracked sentence using UTF-16"
+        )
+        try expect(
+            TrackedTextReplacement.sentenceRange(snapshot: sentence, translation: currentResult, currentRevision: 6, expectedCaret: caret, selection: collapsed, hasComposition: false),
+            nil,
+            "reject an older translation even when its source text matches"
+        )
+        try expect(
+            TrackedTextReplacement.sentenceRange(snapshot: sentence, translation: currentResult, currentRevision: 5, expectedCaret: caret, selection: collapsed, hasComposition: true),
+            nil,
+            "refuse to replace while composing"
+        )
+        try expect(
+            TrackedTextReplacement.sentenceRange(snapshot: sentence, translation: currentResult, currentRevision: 5, expectedCaret: caret, selection: NSRange(location: caret - 1, length: 0), hasComposition: false),
+            nil,
+            "refuse to replace after a caret move"
+        )
+        try expect(
+            TrackedTextReplacement.sentenceRange(snapshot: sentence, translation: currentResult, currentRevision: 5, expectedCaret: caret, selection: NSRange(location: 12, length: 2), hasComposition: false),
+            nil,
+            "refuse to replace a selection"
+        )
+        try expect(
+            TrackedTextReplacement.sentenceRange(snapshot: nil, translation: currentResult, currentRevision: 5, expectedCaret: nil, selection: collapsed, hasComposition: false),
+            nil,
+            "repeat after context reset does not replace again"
+        )
+
         print("LinguaFlow core checks passed")
     }
 }
