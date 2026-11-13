@@ -172,12 +172,15 @@ private final class PreviewView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let background = NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6)
-        NSColor.windowBackgroundColor.withAlphaComponent(0.98).setFill()
-        background.fill()
-        NSColor.separatorColor.withAlphaComponent(0.55).setStroke()
-        background.lineWidth = 0.5
-        background.stroke()
+        // Fade only the outer point of the background so text stays sharp.
+        let backgroundColor = NSColor.windowBackgroundColor
+        let edgeLayers: [(inset: CGFloat, opacity: CGFloat)] = [(0, 0.2), (0.5, 0.45), (1, 0.955)]
+        for layer in edgeLayers {
+            let rect = bounds.insetBy(dx: layer.inset, dy: layer.inset)
+            let radius = 6 - layer.inset
+            backgroundColor.withAlphaComponent(layer.opacity).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+        }
 
         var y = UnifiedPanelLayout.verticalPadding
         if let header = headerContent {
