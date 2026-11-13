@@ -1,6 +1,6 @@
-# LinguaFlow
+# 随键译 / SentenceAlong
 
-LinguaFlow 是 macOS 原生中文输入法。首版开发分支提供「LinguaFlow Dev 中文」，使用 Rime 输入简体中文，并通过 Apple Translation 在本机预览当前句英文。
+随键译是 macOS 原生中文输入法。使用 Rime 输入简体中文时，当前句的英文译文会通过 Apple Translation 在本机预览。
 
 ## 首版开发行为
 
@@ -22,7 +22,7 @@ brew install librime opencc
 ./scripts/check-installed-input-sources.swift --local
 ```
 
-开发版安装在当前用户的 `~/Library/Input Methods/LinguaFlowDev.app`。从菜单栏选择「LinguaFlow Dev 中文」，若未启用，可在「系统设置 → 键盘 → 文本输入」中添加。第一次使用翻译时，从输入法菜单打开「准备本地中英翻译…」，并按提示允许 Apple 下载设备端模型。
+开发版安装在当前用户的 `~/Library/Input Methods/SentenceAlong.app`。从菜单栏选择「随键译」，若未启用，可在「系统设置 → 键盘 → 文本输入」中添加。第一次使用翻译时，从输入法菜单打开「准备本地中英翻译…」，并按提示允许 Apple 下载设备端模型。
 
 系统域打包方式见 [安装说明](docs/INSTALL.md)。旧版双输入源及其升级记录见 [0.2.2 版本说明](docs/RELEASE_0.2.2.md)。
 
@@ -50,7 +50,7 @@ XCTest 和自检程序可分别运行。真实宿主的操作步骤见 [首版�
 ## 隐私边界
 
 - 输入和翻译热路径不调用第三方网络 API。
-- 只记录当前 InputMethodKit 会话中由 LinguaFlow 自己提交的文本，不读取任意宿主文档前文。
+- 只记录当前 InputMethodKit 会话中由随键译自己提交的文本，不读取任意宿主文档前文。
 - 翻译缓冲上限为 280 个字符。
 - 失焦、切换输入源、出现选区、光标离开已追踪文尾、Forward Delete、宿主编辑快捷键或 Secure Event Input 会取消翻译并丢弃无法验证的上下文。
 - 当前版本不保存翻译历史和原始句子。
@@ -60,7 +60,7 @@ XCTest 和自检程序可分别运行。真实宿主的操作步骤见 [首版�
 - 当前发布包仅支持 Apple 芯片 Mac；尚未提供 Intel 或 Universal 版本。
 - 当前测试安装包没有 Developer ID 签名和 Apple 公证，从 GitHub 下载后会出现 Gatekeeper 提示。
 - 候选暂时只支持键盘选择，尚未实现鼠标点击和翻页按钮。
-- 通过鼠标或上下文菜单直接修改宿主文本时，InputMethodKit 不一定立即发送按键事件；LinguaFlow 会在浮层刷新或下一次可观察的输入事件中对账，并在发现光标或选区与已记录位置不一致时清空旧上下文。
+- 通过鼠标或上下文菜单直接修改宿主文本时，InputMethodKit 不一定立即发送按键事件；随键译会在浮层刷新或下一次可观察的输入事件中对账，并在发现光标或选区与已记录位置不一致时清空旧上下文。
 - 尚未完成 Notes、Safari、Chrome、VS Code 等宿主的人工兼容性矩阵。
 - Apple 翻译模型需要用户首次明确授权下载。
 

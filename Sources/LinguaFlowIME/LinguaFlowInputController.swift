@@ -110,7 +110,7 @@ final class LinguaFlowInputController: IMKInputController {
     }
 
     override func menu() -> NSMenu! {
-        let menu = NSMenu(title: "LinguaFlow")
+        let menu = NSMenu(title: "随键译")
         let setupItem = NSMenuItem(
             title: "准备本地中英翻译…",
             action: #selector(openTranslationSetup),
@@ -849,7 +849,7 @@ final class LinguaFlowInputController: IMKInputController {
         let setupURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Helpers", isDirectory: true)
-            .appendingPathComponent("LinguaFlowDevSetup.app", isDirectory: true)
+            .appendingPathComponent("SentenceAlongSetup.app", isDirectory: true)
         NSWorkspace.shared.open(setupURL)
     }
 

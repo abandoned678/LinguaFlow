@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-  <title>LinguaFlow Dev 中文输入法</title>
+  <title>随键译输入法</title>
   <organization>com.abandoned678</organization>
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
   <options customize="never" require-scripts="false" hostArchitectures="@ARCHITECTURE@"/>
@@ -15,9 +15,9 @@
     <line choice="default"/>
   </choices-outline>
   <choice id="default" visible="false">
-    <pkg-ref id="com.abandoned678.pkg.LinguaFlowDev.input-methods"/>
+    <pkg-ref id="com.abandoned678.pkg.SentenceAlong.input-methods"/>
   </choice>
-  <pkg-ref id="com.abandoned678.pkg.LinguaFlowDev.input-methods"
+  <pkg-ref id="com.abandoned678.pkg.SentenceAlong.input-methods"
            version="@PACKAGE_VERSION@"
-           onConclusion="none">LinguaFlow-input-methods.pkg</pkg-ref>
+           onConclusion="none">SentenceAlong-input-methods.pkg</pkg-ref>
 </installer-gui-script>

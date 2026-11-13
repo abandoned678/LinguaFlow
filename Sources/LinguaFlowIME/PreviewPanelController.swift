@@ -130,7 +130,7 @@ private final class PreviewView: NSView {
         super.init(frame: frameRect)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("LinguaFlow 输入、纠错与翻译预览")
+        setAccessibilityLabel("随键译输入、纠错与翻译预览")
     }
 
     required init?(coder: NSCoder) {

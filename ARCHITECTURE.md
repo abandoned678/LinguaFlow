@@ -1,4 +1,4 @@
-# LinguaFlow 架构与数据流
+# 随键译架构与数据流
 
 本文描述首版的系统结构和数据流。构建、自检和宿主实测结果见 [首版任务清单](docs/V1.md)。
 
@@ -6,14 +6,14 @@
 
 ## 1. 系统边界
 
-LinguaFlow 是 macOS 原生输入法，使用 InputMethodKit 接收宿主的按键和文本输入回调，通过 librime 生成中文候选，通过 Apple Translation 生成设备端翻译。它不是读取任意应用全文的辅助功能工具，也不是翻译代理服务。
+随键译是 macOS 原生输入法，使用 InputMethodKit 接收宿主的按键和文本输入回调，通过 librime 生成中文候选，通过 Apple Translation 生成设备端翻译。它不是读取任意应用全文的辅助功能工具，也不是翻译代理服务。
 
 核心路径分成两条：
 
 - **输入路径**：同步处理按键、Rime 组词和中文上屏，不等待翻译任务完成。
 - **预览路径**：从当前会话缓冲及临时候选构造翻译源，防抖后异步翻译，验旧后更新独立浮层。
 
-首版开发产物只注册「LinguaFlow Dev 中文」。英文模式源码保留。
+首版开发产物只注册「随键译」。英文模式源码保留。
 
 ## 2. Swift Package 与模块职责
 
@@ -60,7 +60,7 @@ flowchart TD
 | controller → `CommittedSentenceBuffer`、候选、修订号、宿主光标位置 | 控制器级 | 不从宿主文档历史恢复句子，失效时清空。 |
 | controller → `TranslationCoordinator` → `OnDeviceTranslationProvider` | 每个控制器独立的翻译状态 | 协调器在 MainActor；provider 是 actor，持有可重建的系统 TranslationSession。 |
 | `PreviewPanelController.shared` → `NSPanel`／`PreviewView` | 输入法进程级共享 | 用 `ObjectIdentifier(owner)` 控制 show/hide 的会话归属，避免旧控制器隐藏新控制器的面板。 |
-| `LinguaFlowSetup.app` | 输入法外的独立助手进程 | 中文开发 Bundle 内嵌助手；模型由系统管理，不通过自定义 IPC 把输入原句发给助手。 |
+| `SentenceAlongSetup.app` | 输入法外的独立助手进程 | 中文开发 Bundle 内嵌助手；模型由系统管理，不通过自定义 IPC 把输入原句发给助手。 |
 
 `RimeRuntime` 的 Swift 静态标记与 C 桥的 `g_initialized` 保证初始化只进行一次。C 接口虽然提供 `lf_rime_finalize`，当前 Swift 应用没有调用它；不要将逐 session 销毁描述成全局 runtime 的关闭。
 
@@ -178,7 +178,7 @@ sequenceDiagram
 | --- | --- |
 | 原句缓冲、临时候选、译文、英文释义缓存 | 控制器／浮层／任务内存；当前自有输入与翻译代码没有将其作为历史记录落盘。 |
 | Rime 共享方案、词典、OpenCC 数据 | 中文 Bundle 的 `Contents/Resources/Rime/`；构建时从子模块及 OpenCC 准备。 |
-| Rime 用户数据／词频学习 | `~/Library/Application Support/LinguaFlowDev/Rime/`，由 `AppEnvironment` 配置给 librime。不能将“不保存翻译历史”理解成完全不写磁盘。 |
+| Rime 用户数据／词频学习 | `~/Library/Application Support/SentenceAlong/Rime/`，由 `AppEnvironment` 配置给 librime。不能将“不保存翻译历史”理解成完全不写磁盘。 |
 | 翻译模型 | Apple Translation 系统管理；不放入 Git 或应用词库目录。 |
 
 当前没有第三方翻译 API 或云 provider。这里描述已读代码的设计边界，不是流量、系统服务行为或供应链的完整审计。诊断日志不得为了排查问题加入用户原句和译文。
@@ -188,13 +188,13 @@ sequenceDiagram
 [build-app.sh](scripts/build-app.sh) 先构建 `LinguaFlowIME` 和 `LinguaFlowSetup`，再组装：
 
 ```text
-.build/LinguaFlowDev.app/
+.build/SentenceAlong.app/
   Contents/Info.plist
-  Contents/MacOS/LinguaFlowDevIME
+  Contents/MacOS/SentenceAlongIME
   Contents/Frameworks/*.dylib
   Contents/Resources/Rime/                 # 中文方案、词典和 OpenCC
   Contents/Resources/ThirdPartyLicenses/
-  Contents/Helpers/LinguaFlowDevSetup.app/
+  Contents/Helpers/SentenceAlongSetup.app/
 
 ```
 
@@ -209,7 +209,7 @@ sequenceDiagram
 | [preinstall](installer/scripts/preinstall)、[postinstall](installer/scripts/postinstall) | 停止旧开发进程并注册系统域开发输入源。若当前会话暂未注册成功，提示重新登录。 |
 | [check-installed-input-sources.swift](scripts/check-installed-input-sources.swift) | 校验身份、启用、可选状态和 LaunchServices 路径。默认检查系统域，`--local` 检查用户域。 |
 
-中文开发 Bundle 与输入源 ID 均为 `com.abandoned678.inputmethod.LinguaFlowDev`。
+中文开发 Bundle 与输入源 ID 均为 `com.abandoned678.inputmethod.SentenceAlong`。
 
 未提供证书时应用采用 ad-hoc 签名，安装包未签名。脚本支持通过 `CODE_SIGN_IDENTITY`、`INSTALLER_SIGN_IDENTITY`、`NOTARYTOOL_PROFILE` 执行正式签名和公证；完成可选公证／staple 后再生成 SHA-256。许可证和上游声明随 Bundle／安装包保留，具体见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 

@@ -5,15 +5,15 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleDisplayName</key>
-    <string>LinguaFlow Dev 设置</string>
+    <string>随键译设置</string>
     <key>CFBundleExecutable</key>
-    <string>LinguaFlowDevSetup</string>
+    <string>SentenceAlongSetup</string>
     <key>CFBundleIdentifier</key>
-    <string>com.abandoned678.inputmethod.LinguaFlowDev.Setup</string>
+    <string>com.abandoned678.inputmethod.SentenceAlong.Setup</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>LinguaFlowDevSetup</string>
+    <string>SentenceAlongSetup</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

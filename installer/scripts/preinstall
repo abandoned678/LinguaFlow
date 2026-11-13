@@ -5,7 +5,7 @@ set -u
 # InputMethodKit keeps the active input source process alive. Stop the old
 # binaries before Installer replaces their bundles so the next activation
 # always loads one coherent version.
-/usr/bin/pkill -x LinguaFlowDevIME >/dev/null 2>&1 || true
-/usr/bin/pkill -x LinguaFlowDevSetup >/dev/null 2>&1 || true
+/usr/bin/pkill -x SentenceAlongIME >/dev/null 2>&1 || true
+/usr/bin/pkill -x SentenceAlongSetup >/dev/null 2>&1 || true
 
 exit 0

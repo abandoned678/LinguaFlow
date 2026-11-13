@@ -41,7 +41,7 @@ else
   exit 64
 fi
 
-package_filename="LinguaFlowDev-${package_version}-macOS-${architecture}${signature_suffix}.pkg"
+package_filename="SentenceAlong-${package_version}-macOS-${architecture}${signature_suffix}.pkg"
 output_package="$dist_dir/$package_filename"
 
 mkdir -p "$project_dir/.build" "$dist_dir"
@@ -60,8 +60,8 @@ CODE_SIGN_IDENTITY="$app_sign_identity" \
 payload_root="$work_dir/root"
 payload_input_methods="$payload_root/Library/Input Methods"
 mkdir -p "$payload_input_methods"
-/usr/bin/ditto --norsrc "$project_dir/.build/LinguaFlowDev.app" \
-  "$payload_input_methods/LinguaFlowDev.app"
+/usr/bin/ditto --norsrc "$project_dir/.build/SentenceAlong.app" \
+  "$payload_input_methods/SentenceAlong.app"
 
 verify_self_contained_bundle() {
   local app_bundle=$1
@@ -127,7 +127,7 @@ verify_self_contained_bundle() {
   done
 }
 
-verify_self_contained_bundle "$payload_input_methods/LinguaFlowDev.app"
+verify_self_contained_bundle "$payload_input_methods/SentenceAlong.app"
 
 for opencc_resource in \
   t2s.json \
@@ -141,7 +141,7 @@ for opencc_resource in \
   HKVariants.ocd2 \
   TWVariantsPhrases.ocd2 \
   TWVariants.ocd2; do
-  if [[ ! -r "$payload_input_methods/LinguaFlowDev.app/Contents/Resources/Rime/opencc/$opencc_resource" ]]; then
+  if [[ ! -r "$payload_input_methods/SentenceAlong.app/Contents/Resources/Rime/opencc/$opencc_resource" ]]; then
     echo "Chinese input method is missing OpenCC data: $opencc_resource" >&2
     exit 65
   fi
@@ -159,7 +159,7 @@ while component_path=$(/usr/libexec/PlistBuddy \
   -c "Print :$component_index:RootRelativeBundlePath" \
   "$component_plist" 2>/dev/null); do
   case "$component_path" in
-    "Library/Input Methods/LinguaFlowDev.app")
+    "Library/Input Methods/SentenceAlong.app")
       /usr/libexec/PlistBuddy \
         -c "Set :$component_index:BundleIsRelocatable false" \
         "$component_plist" 2>/dev/null || /usr/libexec/PlistBuddy \
@@ -179,11 +179,11 @@ if [[ "$chinese_component_count" -ne 1 ]]; then
   exit 65
 fi
 
-component_package="$work_dir/LinguaFlow-input-methods.pkg"
+component_package="$work_dir/SentenceAlong-input-methods.pkg"
 pkgbuild \
   --root "$payload_root" \
   --component-plist "$component_plist" \
-  --identifier com.abandoned678.pkg.LinguaFlowDev.input-methods \
+  --identifier com.abandoned678.pkg.SentenceAlong.input-methods \
   --version "$full_version" \
   --install-location / \
   --ownership recommended \
@@ -199,7 +199,7 @@ distribution_file="$work_dir/Distribution.xml"
 product_resources="$work_dir/Resources"
 /usr/bin/ditto "$resources_source" "$product_resources"
 {
-  echo "LinguaFlow"
+  echo "随键译 / SentenceAlong"
   echo
   /bin/cat "$project_dir/LICENSE"
   echo
@@ -218,10 +218,10 @@ productbuild "${productbuild_arguments[@]}" "$staged_package" >/dev/null
 
 pkgutil --expand "$staged_package" "$work_dir/expanded" >/dev/null
 test -f "$work_dir/expanded/Distribution"
-test -f "$work_dir/expanded/LinguaFlow-input-methods.pkg/Payload"
-test -f "$work_dir/expanded/LinguaFlow-input-methods.pkg/Scripts/postinstall"
+test -f "$work_dir/expanded/SentenceAlong-input-methods.pkg/Payload"
+test -f "$work_dir/expanded/SentenceAlong-input-methods.pkg/Scripts/postinstall"
 
-package_info="$work_dir/expanded/LinguaFlow-input-methods.pkg/PackageInfo"
+package_info="$work_dir/expanded/SentenceAlong-input-methods.pkg/PackageInfo"
 package_relocatable=$(/usr/bin/xmllint \
   --xpath 'string(/pkg-info/@relocatable)' "$package_info")
 if [[ "$package_relocatable" != false ]]; then
@@ -237,7 +237,7 @@ if [[ "$relocatable_bundle_count" != 0 ]]; then
 fi
 
 for expected_bundle_path in \
-  './Library/Input Methods/LinguaFlowDev.app'; do
+  './Library/Input Methods/SentenceAlong.app'; do
   packaged_bundle_count=$(/usr/bin/xmllint \
     --xpath "count(/pkg-info/bundle[@path='$expected_bundle_path'])" \
     "$package_info")
@@ -248,7 +248,7 @@ for expected_bundle_path in \
 done
 
 for expected_bundle_identifier in \
-  com.abandoned678.inputmethod.LinguaFlowDev; do
+  com.abandoned678.inputmethod.SentenceAlong; do
   upgrade_bundle_count=$(/usr/bin/xmllint \
     --xpath "count(/pkg-info/upgrade-bundle/bundle[@id='$expected_bundle_identifier'])" \
     "$package_info")

@@ -1,4 +1,4 @@
-# LinguaFlow 安装包
+# 随键译 / SentenceAlong 安装
 
 ## 开发版安装
 
@@ -9,7 +9,7 @@
 ./scripts/check-installed-input-sources.swift --local
 ```
 
-脚本将「LinguaFlow Dev 中文」安装到 `~/Library/Input Methods/LinguaFlowDev.app`。系统域测试包安装到 `/Library/Input Methods/LinguaFlowDev.app`，并尝试为当前桌面用户注册和启用。开发版使用独立的 Bundle ID 与 Rime 用户数据目录。旧版安装和迁移细节见 [0.2.2 版本说明](RELEASE_0.2.2.md)。
+脚本将「随键译」安装到 `~/Library/Input Methods/SentenceAlong.app`。系统域测试包安装到 `/Library/Input Methods/SentenceAlong.app`，并尝试为当前桌面用户注册和启用。随键译使用新的输入源 ID 和独立的 Rime 用户数据目录 `~/Library/Application Support/SentenceAlong/Rime/`。原「LinguaFlow Dev 中文」及其词频数据可在原输入源继续使用，安装随键译时不会迁移。
 
 若菜单栏未显示该输入源，可在「系统设置 → 键盘 → 文本输入 → 编辑」中添加。第一次使用翻译前，从输入法菜单选择「准备本地中英翻译…」，按提示允许 Apple 下载设备端中英翻译模型。
 

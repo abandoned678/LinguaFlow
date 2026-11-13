@@ -24,7 +24,7 @@ final class AppEnvironment {
             create: true
         )
         let userData = appSupport
-            .appendingPathComponent("LinguaFlowDev", isDirectory: true)
+            .appendingPathComponent("SentenceAlong", isDirectory: true)
             .appendingPathComponent("Rime", isDirectory: true)
 
         runtime = try RimeRuntime(
@@ -47,8 +47,8 @@ enum EnvironmentError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingBundleResources: "LinguaFlow 找不到输入法资源。"
-        case .rimeNotStarted: "LinguaFlow 的拼音引擎尚未启动。"
+        case .missingBundleResources: "随键译找不到输入法资源。"
+        case .rimeNotStarted: "随键译的拼音引擎尚未启动。"
         }
     }
 }

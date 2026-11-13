@@ -54,7 +54,7 @@ int lf_rime_initialize(
     RIME_STRUCT_INIT(RimeTraits, traits);
     traits.shared_data_dir = shared_data_dir;
     traits.user_data_dir = user_data_dir;
-    traits.distribution_name = "LinguaFlow";
+    traits.distribution_name = "SentenceAlong";
     traits.distribution_code_name = "linguaflow";
     traits.distribution_version = "0.2.2";
     traits.app_name = "rime.linguaflow";

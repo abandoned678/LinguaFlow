@@ -14,7 +14,7 @@ struct LinguaFlowSetupApp: App {
     @NSApplicationDelegateAdaptor(SetupAppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup("LinguaFlow 设置", id: "setup") {
+        WindowGroup("随键译设置", id: "setup") {
             TranslationSetupView()
                 .frame(width: 480, height: 300)
         }
@@ -33,7 +33,7 @@ private struct TranslationSetupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("LinguaFlow")
+            Text("随键译")
                 .font(.largeTitle.bold())
             Text("下载 Apple 的中文与英语翻译模型后，中译英与英译中都会完全在这台 Mac 上处理。")
                 .foregroundStyle(.secondary)

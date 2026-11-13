@@ -5,8 +5,8 @@ set -euo pipefail
 project_dir=${0:A:h:h}
 configuration=${1:-release}
 code_sign_identity=${CODE_SIGN_IDENTITY:--}
-app_bundle="$project_dir/.build/LinguaFlowDev.app"
-helper_bundle="$app_bundle/Contents/Helpers/LinguaFlowDevSetup.app"
+app_bundle="$project_dir/.build/SentenceAlong.app"
+helper_bundle="$app_bundle/Contents/Helpers/SentenceAlongSetup.app"
 
 cd "$project_dir"
 
@@ -26,7 +26,7 @@ mkdir -p "$app_bundle/Contents/Resources/ThirdPartyLicenses"
 mkdir -p "$helper_bundle/Contents/MacOS"
 
 cp "$project_dir/Resources/Info.plist" "$app_bundle/Contents/Info.plist"
-cp "$binary_dir/LinguaFlowIME" "$app_bundle/Contents/MacOS/LinguaFlowDevIME"
+cp "$binary_dir/LinguaFlowIME" "$app_bundle/Contents/MacOS/SentenceAlongIME"
 "$project_dir/scripts/prepare-rime-data.sh" "$app_bundle/Contents/Resources/Rime" >/dev/null
 swift "$project_dir/scripts/make-icon.swift" "$app_bundle/Contents/Resources/InputSourceIconTemplate.tiff"
 cp "$project_dir/LICENSE" "$app_bundle/Contents/Resources/LinguaFlow-LICENSE.txt"
@@ -41,7 +41,7 @@ cp "$project_dir/Vendor/rime-essay/LICENSE" \
   "$app_bundle/Contents/Resources/ThirdPartyLicenses/RimeEssay-LICENSE.txt"
 
 cp "$project_dir/Resources/Setup-Info.plist" "$helper_bundle/Contents/Info.plist"
-cp "$binary_dir/LinguaFlowSetup" "$helper_bundle/Contents/MacOS/LinguaFlowDevSetup"
+cp "$binary_dir/LinguaFlowSetup" "$helper_bundle/Contents/MacOS/SentenceAlongSetup"
 
 "$project_dir/scripts/embed-rime-runtime.sh" "$app_bundle" >/dev/null
 

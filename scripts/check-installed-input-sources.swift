@@ -13,11 +13,11 @@ struct ExpectedInputSource {
 
 let expectedSources = [
     ExpectedInputSource(
-        identifier: "com.abandoned678.inputmethod.LinguaFlowDev",
+        identifier: "com.abandoned678.inputmethod.SentenceAlong",
         path: CommandLine.arguments.contains("--local")
-            ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Input Methods/LinguaFlowDev.app").path
-            : "/Library/Input Methods/LinguaFlowDev.app",
-        executable: "LinguaFlowDevIME",
+            ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Input Methods/SentenceAlong.app").path
+            : "/Library/Input Methods/SentenceAlong.app",
+        executable: "SentenceAlongIME",
         sourceInfoPlist: "Resources/Info.plist"
     ),
 
@@ -115,7 +115,7 @@ for expected in expectedSources {
 }
 
 if failures.isEmpty {
-    print("PASS: LinguaFlow Dev Chinese is enabled, selectable, and system-resolved")
+    print("PASS: SentenceAlong is enabled, selectable, and system-resolved")
     exit(0)
 }
 

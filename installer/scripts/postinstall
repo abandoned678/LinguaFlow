@@ -6,18 +6,18 @@ target_volume=${3:-/}
 target_root=${target_volume%/}
 [[ -n "$target_root" ]] || target_root=/
 
-chinese_app="$target_root/Library/Input Methods/LinguaFlowDev.app"
-chinese_binary="$chinese_app/Contents/MacOS/LinguaFlowDevIME"
+chinese_app="$target_root/Library/Input Methods/SentenceAlong.app"
+chinese_binary="$chinese_app/Contents/MacOS/SentenceAlongIME"
 lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 if [[ "$target_root" != / ]]; then
-  echo "LinguaFlow was installed on $target_root; input-source registration is deferred." >&2
+  echo "SentenceAlong was installed on $target_root; input-source registration is deferred." >&2
   exit 0
 fi
 
 console_user=$(/usr/bin/stat -f '%Su' /dev/console 2>/dev/null || true)
 if [[ -z "$console_user" || "$console_user" == root || "$console_user" == loginwindow ]]; then
-  echo "No logged-in desktop user; LinguaFlow will be available after the next login." >&2
+  echo "No logged-in desktop user; SentenceAlong will be available after the next login." >&2
   exit 0
 fi
 
@@ -57,20 +57,20 @@ install_and_verify() {
   return 1
 }
 
-install_and_verify "$chinese_binary" "LinguaFlow Dev 中文" || true
+install_and_verify "$chinese_binary" "随键译" || true
 
 # A second fresh-process check catches the former false-success case where TIS
 # returned noErr and a delayed stale-path notification removed the source after
 # the helper exited.
 /bin/sleep 1
 if ! run_as_console_user "$chinese_binary" --verify-input-source; then
-  install_and_verify "$chinese_binary" "LinguaFlow Dev 中文" || true
+  install_and_verify "$chinese_binary" "随键译" || true
 fi
 
 registration_failed=0
 run_as_console_user "$chinese_binary" --verify-input-source || registration_failed=1
 if [[ "$registration_failed" -ne 0 ]]; then
-  echo "LinguaFlow files were installed, but macOS deferred one or more input sources until the next login." >&2
+  echo "SentenceAlong files were installed, but macOS deferred one or more input sources until the next login." >&2
 fi
 
 # Input-source state belongs to the current graphical login session. The fixed

@@ -11,14 +11,14 @@ final class LinguaFlowApplicationDelegate: NSObject, NSApplicationDelegate {
             do {
                 try AppEnvironment.shared.start()
             } catch {
-                fputs("LinguaFlow startup failed: \(error.localizedDescription)\n", stderr)
+                fputs("SentenceAlong startup failed: \(error.localizedDescription)\n", stderr)
             }
         }
 
         let bundle = Bundle.main
-        let identifier = bundle.bundleIdentifier ?? "com.abandoned678.inputmethod.LinguaFlowDev"
+        let identifier = bundle.bundleIdentifier ?? "com.abandoned678.inputmethod.SentenceAlong"
         let connectionName = bundle.object(forInfoDictionaryKey: "InputMethodConnectionName") as? String
-            ?? "com.abandoned678.inputmethod.LinguaFlowDev_Connection"
+            ?? "com.abandoned678.inputmethod.SentenceAlong_Connection"
         inputMethodServer = IMKServer(name: connectionName, bundleIdentifier: identifier)
     }
 }
@@ -79,8 +79,8 @@ enum LinguaFlowApplication {
     private static func hasSupportedInstallationPath(bundleIdentifier: String) -> Bool {
         let bundleName: String
         switch bundleIdentifier {
-        case "com.abandoned678.inputmethod.LinguaFlowDev":
-            bundleName = "LinguaFlowDev.app"
+        case "com.abandoned678.inputmethod.SentenceAlong":
+            bundleName = "SentenceAlong.app"
         default:
             return false
         }
@@ -115,7 +115,7 @@ enum LinguaFlowApplication {
         sourceIdentifier: String
     ) -> Bool {
         guard hasSupportedInstallationPath(bundleIdentifier: bundleIdentifier) else {
-            fputs("LinguaFlow is not running from a supported Input Methods path\n", stderr)
+            fputs("SentenceAlong is not running from a supported Input Methods path\n", stderr)
             return false
         }
         let registerStatus = TISRegisterInputSource(Bundle.main.bundleURL as CFURL)
@@ -149,7 +149,7 @@ enum LinguaFlowApplication {
                         }
                     }
                     if stableChecks == 2 {
-                        print("LinguaFlow input source registered, enabled, and verified")
+                        print("SentenceAlong input source registered, enabled, and verified")
                         return true
                     }
                 }
@@ -157,14 +157,14 @@ enum LinguaFlowApplication {
             Thread.sleep(forTimeInterval: 0.2)
         }
 
-        fputs("LinguaFlow input source did not become enabled and selectable\n", stderr)
+        fputs("SentenceAlong input source did not become enabled and selectable\n", stderr)
         return false
     }
 
     static func main() {
         if CommandLine.arguments.contains("--install-input-source") {
             guard let identifiers = inputSourceIdentifiers() else {
-                fputs("LinguaFlow input-source identifiers are missing\n", stderr)
+                fputs("SentenceAlong input-source identifiers are missing\n", stderr)
                 exit(1)
             }
             exit(installInputSource(
@@ -175,24 +175,24 @@ enum LinguaFlowApplication {
 
         if CommandLine.arguments.contains("--verify-input-source") {
             guard let identifiers = inputSourceIdentifiers() else {
-                fputs("LinguaFlow input-source identifiers are missing\n", stderr)
+                fputs("SentenceAlong input-source identifiers are missing\n", stderr)
                 exit(1)
             }
             guard isEnabledAndSelectable(
                 bundleIdentifier: identifiers.bundle,
                 sourceIdentifier: identifiers.source
             ) else {
-                fputs("LinguaFlow input source is not enabled and selectable\n", stderr)
+                fputs("SentenceAlong input source is not enabled and selectable\n", stderr)
                 exit(1)
             }
-            print("LinguaFlow input source is enabled and selectable")
+            print("SentenceAlong input source is enabled and selectable")
             return
         }
 
         if CommandLine.arguments.contains("--register-input-source") {
             guard let identifiers = inputSourceIdentifiers(),
                   hasSupportedInstallationPath(bundleIdentifier: identifiers.bundle) else {
-                fputs("LinguaFlow is not running from a supported Input Methods path\n", stderr)
+                fputs("SentenceAlong is not running from a supported Input Methods path\n", stderr)
                 exit(1)
             }
             let status = TISRegisterInputSource(Bundle.main.bundleURL as CFURL)
@@ -200,17 +200,17 @@ enum LinguaFlowApplication {
                 fputs("TISRegisterInputSource failed with status \(status)\n", stderr)
                 exit(Int32(status))
             }
-            print("LinguaFlow input source registered")
+            print("SentenceAlong input source registered")
             return
         }
 
         if CommandLine.arguments.contains("--enable-input-source") {
             guard let identifiers = inputSourceIdentifiers() else {
-                fputs("LinguaFlow input-source identifiers are missing\n", stderr)
+                fputs("SentenceAlong input-source identifiers are missing\n", stderr)
                 exit(1)
             }
             guard hasSupportedInstallationPath(bundleIdentifier: identifiers.bundle) else {
-                fputs("LinguaFlow is not running from a supported Input Methods path\n", stderr)
+                fputs("SentenceAlong is not running from a supported Input Methods path\n", stderr)
                 exit(1)
             }
             let matchingSource = inputSource(
@@ -219,7 +219,7 @@ enum LinguaFlowApplication {
                 includeAllInstalled: true
             )
             guard let matchingSource else {
-                fputs("LinguaFlow input source is not registered\n", stderr)
+                fputs("SentenceAlong input source is not registered\n", stderr)
                 exit(1)
             }
             let status = TISEnableInputSource(matchingSource)
@@ -231,10 +231,10 @@ enum LinguaFlowApplication {
                 bundleIdentifier: identifiers.bundle,
                 sourceIdentifier: identifiers.source
             ) else {
-                fputs("LinguaFlow input source did not become enabled and selectable\n", stderr)
+                fputs("SentenceAlong input source did not become enabled and selectable\n", stderr)
                 exit(1)
             }
-            print("LinguaFlow input source enabled")
+            print("SentenceAlong input source enabled")
             return
         }
 
