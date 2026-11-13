@@ -20,7 +20,7 @@
 
 ### E2 执行记录 · 2026-11-13
 
-**部分通过。** macOS 27.0.1、文本编辑 1.21、`ea44d71` 用户域构建。开发输入源已启用、可选，且 LaunchServices 解析到 `~/Library/Input Methods/LinguaFlowDev.app`。
+**通过。** macOS 27.0.1、文本编辑 1.21、`ea44d71` 用户域构建。开发输入源已启用、可选，且 LaunchServices 解析到 `~/Library/Input Methods/LinguaFlowDev.app`。
 
 在空白文稿用自动化逐键输入 `nihao`、空格及 Return，观察到拉丁字母和系统拼写提示，普通 Return 插入换行。临时诊断只记录回调和布尔状态，确认 `activateServer` 已调用，但该次自动化拼音按键未进入 `handle(_:client:)`。已移除诊断并重装正常构建。此前 E1 的拉丁输出同样不足以判断实体键盘组词。
 
