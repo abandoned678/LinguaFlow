@@ -39,7 +39,7 @@ final class PreviewPanelController {
 
     func update(
         owner: AnyObject,
-        preedit: String,
+        isComposing: Bool,
         sourceText: String?,
         candidates: [RimeCandidate],
         highlightedIndex: Int,
@@ -49,7 +49,7 @@ final class PreviewPanelController {
     ) {
         activeOwner = ObjectIdentifier(owner)
         previewView.update(
-            preedit: preedit,
+            isComposing: isComposing,
             sourceText: sourceText,
             candidates: Array(candidates.prefix(5)),
             highlightedIndex: highlightedIndex,
@@ -104,7 +104,7 @@ final class PreviewPanelController {
 @MainActor
 private final class PreviewView: NSView {
     private(set) var preferredSize = NSSize(width: 220, height: 48)
-    private var preedit = ""
+    private var isComposing = false
     private var sourceText: String?
     private var candidates: [RimeCandidate] = []
     private var highlightedIndex = 0
@@ -130,7 +130,7 @@ private final class PreviewView: NSView {
     }
 
     func update(
-        preedit: String,
+        isComposing: Bool,
         sourceText: String?,
         candidates: [RimeCandidate],
         highlightedIndex: Int,
@@ -138,7 +138,7 @@ private final class PreviewView: NSView {
         direction: TranslationDirection,
         spellingCorrection: EnglishSpellingCorrection?
     ) {
-        let changed = self.preedit != preedit
+        let changed = self.isComposing != isComposing
             || self.sourceText != sourceText
             || self.candidates != candidates
             || self.highlightedIndex != highlightedIndex
@@ -146,7 +146,7 @@ private final class PreviewView: NSView {
             || self.direction != direction
             || self.spellingCorrection != spellingCorrection
 
-        self.preedit = preedit
+        self.isComposing = isComposing
         self.sourceText = sourceText
         self.candidates = candidates
         self.highlightedIndex = highlightedIndex
@@ -201,13 +201,8 @@ private final class PreviewView: NSView {
     }
 
     private var headerContent: (label: String, value: String)? {
-        if !preedit.isEmpty {
-            return ("拼音", preedit)
-        }
-        if let sourceText, !sourceText.isEmpty {
-            return (direction.sourceLabel, sourceText)
-        }
-        return nil
+        guard !isComposing, let sourceText, !sourceText.isEmpty else { return nil }
+        return (direction.sourceLabel, sourceText)
     }
 
     private var translationText: String? {

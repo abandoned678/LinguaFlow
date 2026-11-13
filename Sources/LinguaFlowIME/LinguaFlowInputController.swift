@@ -313,7 +313,7 @@ final class LinguaFlowInputController: IMKInputController {
     private func renderPanel(client: (any IMKTextInput)?) {
         panelController.update(
             owner: self,
-            preedit: currentPreedit,
+            isComposing: !currentPreedit.isEmpty,
             sourceText: translationSourceText,
             candidates: currentCandidates,
             highlightedIndex: currentHighlightedIndex,
@@ -322,7 +322,7 @@ final class LinguaFlowInputController: IMKInputController {
             spellingCorrection: spellingCorrection
         )
 
-        if !currentPreedit.isEmpty || !currentCandidates.isEmpty || translationState != .hidden {
+        if !currentCandidates.isEmpty || translationState != .hidden {
             captureCaretAnchor(client: client)
             showPanel(client: client)
             startPositionRefresh()

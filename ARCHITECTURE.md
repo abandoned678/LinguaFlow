@@ -153,7 +153,7 @@ sequenceDiagram
 
 ### 浮层所有权与坐标
 
-[PreviewPanelController](Sources/LinguaFlowIME/PreviewPanelController.swift) 使用不激活宿主焦点的 `NSPanel`，忽略鼠标事件，通过 `PreviewView` 自绘拼音／源文、最多 5 个候选、译文／状态及现有英文纠错。候选暂时依赖键盘选择。
+[PreviewPanelController](Sources/LinguaFlowIME/PreviewPanelController.swift) 使用不激活宿主焦点的 `NSPanel`，忽略鼠标事件，通过 `PreviewView` 自绘已上屏源文、最多 5 个候选、译文／状态及现有英文纠错。候选暂时依赖键盘选择。
 
 几何算法 [UnifiedPanelLayout](Sources/LinguaFlowCore/LiveTranslationDraft.swift) 放在 Core 中供检查程序测试：宽度限制为 220–440 点，优先在锚点下方显示，空间不足时翻到上方，并约束在目标屏幕的 `visibleFrame` 内。窗口层级按宿主窗口层级加一设置。
 
