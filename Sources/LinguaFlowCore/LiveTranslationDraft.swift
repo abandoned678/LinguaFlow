@@ -34,11 +34,11 @@ public enum LiveTranslationDraft {
 public enum UnifiedPanelLayout {
     public static let minimumWidth: CGFloat = 160
     public static let maximumWidth: CGFloat = 440
-    public static let horizontalPadding: CGFloat = 6
-    public static let verticalPadding: CGFloat = 4
+    public static let horizontalPadding: CGFloat = 5
+    public static let verticalPadding: CGFloat = 3
     public static let rowSpacing: CGFloat = 3
     public static let screenMargin: CGFloat = 4
-    public static let anchorGap: CGFloat = 2
+    public static let anchorGap: CGFloat = 1
 
     public static func size(
         contentWidths: [CGFloat],
