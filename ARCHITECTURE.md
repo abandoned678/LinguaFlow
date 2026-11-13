@@ -1,8 +1,8 @@
 # LinguaFlow 架构与数据流
 
-本文描述当前仓库的实际结构，供开发和代码审查使用。调查基线为 `48a2171`，整理日期为 2026-10-29；结论来自源码、配置、检查程序和打包脚本的静态核对，不代表本次已构建、安装或通过宿主兼容性测试。
+本文描述首版开发分支的系统结构和数据流。代码基线为 `ea44d71`。构建、自检和宿主实测结果见 [首版任务清单](docs/MASTER_CHECKLIST.md)。
 
-[AGENTS.md](AGENTS.md) 定义必须遵守的开发约束，[需求与待办](docs/需求与待办.md) 定义已确认的首版目标。本文解释现有实现；目标与实现的差异集中列在末尾。修改模块依赖、数据流、生命周期或安装身份时同步维护本文。
+[AGENTS.md](AGENTS.md) 定义必须遵守的开发约束，[需求与待办](docs/需求与待办.md) 定义已确认的首版目标。本文解释现有实现；修改模块依赖、数据流、生命周期或安装身份时同步维护本文。
 
 ## 1. 系统边界
 
@@ -13,7 +13,7 @@ LinguaFlow 是 macOS 原生输入法，使用 InputMethodKit 接收宿主的按�
 - **输入路径**：同步处理按键、Rime 组词和中文上屏，不等待翻译任务完成。
 - **预览路径**：从当前会话缓冲及临时候选构造翻译源，防抖后异步翻译，验旧后更新独立浮层。
 
-当前代码仍有中文、English 两套输入源。首版产品目标是只保留中文输入及当前句英文预览，并通过明确快捷键原位替换当前句；这项范围调整尚未完成。
+首版开发产物只注册「LinguaFlow Dev 中文」。英文模式源码保留。
 
 ## 2. Swift Package 与模块职责
 
@@ -51,7 +51,7 @@ flowchart TD
 
 [LinguaFlowApplication.swift](Sources/LinguaFlowIME/LinguaFlowApplication.swift) 的 `@main` 首先处理输入源安装／注册／启用／验证命令；普通启动则创建 accessory 模式的 `NSApplication`。应用 delegate 持有 `IMKServer`，从当前 Bundle 读取连接名和标识。
 
-[InputProduct](Sources/LinguaFlowIME/InputProduct.swift) 通过 plist 的 `LinguaFlowInputMode` 选择中文或英文行为。打包脚本将同一 `LinguaFlowIME` 可执行产物复制到两个应用中；English 副本的文件名为 `LinguaFlowEnglishIME`。这是两个应用入口，不是在同一个控制器里动态切换语言。
+[InputProduct](Sources/LinguaFlowIME/InputProduct.swift) 通过 plist 的 `LinguaFlowInputMode` 选择行为。打包脚本只组装中文开发版。
 
 | 对象 | 所有权／寿命 | 重要约束 |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ flowchart TD
 | controller → `CommittedSentenceBuffer`、候选、修订号、宿主光标位置 | 控制器级 | 不从宿主文档历史恢复句子，失效时清空。 |
 | controller → `TranslationCoordinator` → `OnDeviceTranslationProvider` | 每个控制器独立的翻译状态 | 协调器在 MainActor；provider 是 actor，持有可重建的系统 TranslationSession。 |
 | `PreviewPanelController.shared` → `NSPanel`／`PreviewView` | 输入法进程级共享 | 用 `ObjectIdentifier(owner)` 控制 show/hide 的会话归属，避免旧控制器隐藏新控制器的面板。 |
-| `LinguaFlowSetup.app` | 输入法外的独立助手进程 | 每个输入源 Bundle 都内嵌助手副本；模型由系统管理，不通过自定义 IPC 把输入原句发给助手。 |
+| `LinguaFlowSetup.app` | 输入法外的独立助手进程 | 中文开发 Bundle 内嵌助手；模型由系统管理，不通过自定义 IPC 把输入原句发给助手。 |
 
 `RimeRuntime` 的 Swift 静态标记与 C 桥的 `g_initialized` 保证初始化只进行一次。C 接口虽然提供 `lf_rime_finalize`，当前 Swift 应用没有调用它；不要将逐 session 销毁描述成全局 runtime 的关闭。
 
@@ -115,9 +115,9 @@ sequenceDiagram
 | `currentPreedit`／高亮候选 | Rime 正在进行的组词 | 宿主 marked text 和浮层候选；尚未上屏。 |
 | `translationSourceText` | [LiveTranslationDraft](Sources/LinguaFlowCore/LiveTranslationDraft.swift) 的计算结果 | 翻译源可能包含未上屏高亮候选，不等同于缓冲原文或一个已验证的宿主替换范围。 |
 
-当前 [CommittedSentenceBuffer](Sources/LinguaFlowCore/CommittedSentenceBuffer.swift) 按提交块追加，检查最终字符是否属于 `。！？.!?\n` 来标记句末；下一次追加有效内容时清掉上一句。它不会把一个提交块里的多个句子逐一拆分。当前超过 280 个 Swift `Character` 时仅保留尾部，而不是停止翻译并提示过长。
+[CommittedSentenceBuffer](Sources/LinguaFlowCore/CommittedSentenceBuffer.swift) 逐字符处理提交块。中文以 `。！？!?` 和换行收尾。下一句开始时切换上下文。宿主透传的换行需在后续事件中对账确认。
 
-若有高亮临时候选且上一句未结束，`LiveTranslationDraft` 返回“已提交内容 + 候选”；若上一句已结束，则只用新候选，不带上上一句。没有候选时返回缓冲快照。候选拼接后的翻译源没有另外执行 280 字限制。
+组词时，[LiveTranslationDraft](Sources/LinguaFlowCore/LiveTranslationDraft.swift) 将当前高亮候选纳入翻译源。前一句已结束时从新候选开始。当前句或拼接后的草稿超过 280 个字符时，显示过长状态，取消预览请求并清除可替换译文。
 
 ### 防抖与结果验旧
 
@@ -135,9 +135,9 @@ sequenceDiagram
 
 [OnDeviceTranslationProvider](Sources/LinguaFlowIME/OnDeviceTranslationProvider.swift) 按方向创建已安装语言对的 `TranslationSession`，复用 session，并检查 `isReady`。macOS 26.4 及以上选择 `.lowLatency` 策略；较早版本使用基础构造方式。未安装模型映射为用户可读错误；无法导入 Translation framework 时提供抛错的降级实现。输入 provider 不主动调用 `prepareTranslation()` 下载模型。
 
-### 当前主动插译行为
+### 主动替换当前句
 
-现有 `Control + Return` 分支仍是 `insertText(prefix + translatedText, replacementRange: NSNotFound)`：普通前缀为空格，带 Shift 的前缀为换行。它不计算中文整句范围，中文模式也未在该分支排除进行中的组词；首版需要的可靠整句替换尚未实现。浮层中的快捷键提示同样仍描述插入行为。
+`Control + Return` 仅在没有组词或选区、译文版本及源文匹配时继续检查。[TrackedTextReplacement](Sources/LinguaFlowCore/TrackedTextReplacement.swift) 依据已追踪句尾与句子的 UTF-16 长度求范围。控制器只读取该范围进行精确比对，匹配后通过一次 `insertText(_:replacementRange:)` 替换，并清空当前上下文。范围或内容校验失败时保留原文并显示提示。
 
 ## 6. 宿主编辑、生命周期和浮层
 
@@ -145,11 +145,11 @@ sequenceDiagram
 
 `expectedHostCaretLocation` 记录已追踪句尾。中文 commit 后读取宿主 `selectedRange()`；普通尾部退格按最后一个 Swift `Character` 的 UTF-16 长度修正预期位置。宿主范围一律是 UTF-16，不能拿 `String.count` 直接替代。
 
-[TrackedCaretReconciliation](Sources/LinguaFlowCore/TrackedCaretReconciliation.swift) 在无组词、存在上下文时，要求宿主提供有效、无选区且与预期相同的位置，否则清空。当前不是全文对账：即使位置相同，也不意味着任意宿主修改已被识别。英文局部替换路径才额外读取受追踪范围的 substring 做内容比对。
+[TrackedCaretReconciliation](Sources/LinguaFlowCore/TrackedCaretReconciliation.swift) 在无组词、存在上下文时，要求宿主提供有效、无选区且与预期相同的位置，否则清空。当前不是全文对账：即使位置相同，也不意味着任意宿主修改已被识别。主动替换另外读取受追踪范围的 substring 做内容比对。
 
 `clearDocumentContext()` 清 Rime 组词、本地候选、英文缓存和翻译上下文，隐藏归属于本控制器的浮层并丢弃锚点；`clearTranslationContext()` 重置缓冲、最新译文、源文和预期光标，推进修订号、取消翻译及拼写任务。
 
-`deactivateServer` 当前先调用 `commitComposition`，再清上下文、隐藏面板、释放 activeClient 引用。安全输入在 `handle` 收到按键时检查；代码没有独立轮询或通知订阅来即时捕捉所有焦点、滚动和鼠标编辑。`clearDocumentContext()` 本身也没有调用宿主 `setMarkedText` 清标记；不能仅凭该方法名断言所有清理场景已满足“宿主无 marked text”的约束，需逐路径验证。
+`deactivateServer` 先标记会话停用，然后清除宿主标记文本、组词、浮层及翻译任务，释放 activeClient 引用。按键、翻译回调和浮层位置刷新都检查安全输入。
 
 ### 浮层所有权与坐标
 
@@ -157,7 +157,7 @@ sequenceDiagram
 
 几何算法 [UnifiedPanelLayout](Sources/LinguaFlowCore/LiveTranslationDraft.swift) 放在 Core 中供检查程序测试：宽度限制为 220–440 点，优先在锚点下方显示，空间不足时翻到上方，并约束在目标屏幕的 `visibleFrame` 内。窗口层级按宿主窗口层级加一设置。
 
-当前 `captureCaretAnchor()` 的候选顺序是：字符索引 0 的 `lineHeightRectangle` 在前，再追加当前 selected／marked range 末尾的 `firstRect`。有组词时先 marked range，否则先 selected range。`firstUsableAnchor` 选第一个几何有效、原点落在屏幕内的矩形；若本轮全无有效矩形，当前代码仍保留旧 `lastValidAnchor`。定位采样发生在按键处理时，异步翻译返回主要复用缓存锚点；尚无单独跟踪窗口移动和滚动的机制。
+`captureCaretAnchor()` 优先使用当前 marked 或 selected range 末尾的 `firstRect`。只有当前范围起点为 0 时才尝试索引 0 的兼容矩形。无有效锚点时清除缓存并隐藏浮层。浮层属于当前活跃会话时，每 250ms 重采样位置与光标，用于处理宿主可观察的窗口移动或滚动。
 
 ## 7. 现有 English 分支
 
@@ -166,9 +166,9 @@ sequenceDiagram
 - [EnglishSpellChecker](Sources/LinguaFlowIME/EnglishSpellChecker.swift) 调用 `NSSpellChecker` 的英文补全／纠错，词长至少 2，最多 5 个候选；候选生成在 MainActor 上同步执行，不应把全部英文辅助处理都称为后台异步。
 - 候选中文释义由第二个翻译 provider 以 120ms 防抖批量生成，受 `candidateMeaningRevision` 和当前候选列表检查保护，结果仅缓存于内存。
 - 全句拼写检查另有 400ms 防抖与 `spellCheckRevision`。方向键移动高亮，Tab 或数字接受候选，空格保留原词。
-- [TrackedTextReplacement](Sources/LinguaFlowCore/TrackedTextReplacement.swift) 根据句尾和缓冲的 UTF-16 长度映射局部范围；控制器在替换前比较宿主对应 substring，再用指定 `replacementRange` 更新宿主及缓冲。该辅助函数不是已实现的中文整句替换功能。
+- [TrackedTextReplacement](Sources/LinguaFlowCore/TrackedTextReplacement.swift) 根据句尾和缓冲的 UTF-16 长度映射局部范围；控制器在替换前比较宿主对应 substring，再用指定 `replacementRange` 更新宿主及缓冲。同一文件也提供中文整句范围校验。
 
-英文能力不是已确认首版范围，但移除时要同时核对 `InputProduct`、分支状态、plist、打包、安装注册及检查脚本，不能只隐藏界面。
+首版的构建和注册入口仅提供中文开发版。
 
 ## 8. 模型准备、数据和隐私边界
 
@@ -178,9 +178,8 @@ sequenceDiagram
 | --- | --- |
 | 原句缓冲、临时候选、译文、英文释义缓存 | 控制器／浮层／任务内存；当前自有输入与翻译代码没有将其作为历史记录落盘。 |
 | Rime 共享方案、词典、OpenCC 数据 | 中文 Bundle 的 `Contents/Resources/Rime/`；构建时从子模块及 OpenCC 准备。 |
-| Rime 用户数据／词频学习 | `~/Library/Application Support/LinguaFlow/Rime/`，由 `AppEnvironment` 配置给 librime。不能将“不保存翻译历史”理解成完全不写磁盘。 |
+| Rime 用户数据／词频学习 | `~/Library/Application Support/LinguaFlowDev/Rime/`，由 `AppEnvironment` 配置给 librime。不能将“不保存翻译历史”理解成完全不写磁盘。 |
 | 翻译模型 | Apple Translation 系统管理；不放入 Git 或应用词库目录。 |
-| 升级备份 | 用户 Application Support 下的 LinguaFlow 输入法备份目录；由安装脚本处理。 |
 
 当前没有第三方翻译 API 或云 provider。这里描述已读代码的设计边界，不是流量、系统服务行为或供应链的完整审计。诊断日志不得为了排查问题加入用户原句和译文。
 
@@ -189,32 +188,28 @@ sequenceDiagram
 [build-app.sh](scripts/build-app.sh) 先构建 `LinguaFlowIME` 和 `LinguaFlowSetup`，再组装：
 
 ```text
-.build/LinguaFlow.app/
+.build/LinguaFlowDev.app/
   Contents/Info.plist
-  Contents/MacOS/LinguaFlowIME
+  Contents/MacOS/LinguaFlowDevIME
   Contents/Frameworks/*.dylib
   Contents/Resources/Rime/                 # 中文方案、词典和 OpenCC
   Contents/Resources/ThirdPartyLicenses/
-  Contents/Helpers/LinguaFlowSetup.app/
+  Contents/Helpers/LinguaFlowDevSetup.app/
 
-.build/LinguaFlowEnglish.app/              # 同一 IME 产物，不同 plist／可执行文件名
-  Contents/MacOS/LinguaFlowEnglishIME
-  Contents/Frameworks/*.dylib
-  Contents/Helpers/LinguaFlowSetup.app/
 ```
 
 [prepare-rime-data.sh](scripts/prepare-rime-data.sh) 复制三个子模块的数据与 [default.custom.yaml](Resources/Rime/default.custom.yaml)，仅暴露 `luna_pinyin_simp`，候选页大小为 5；复制并验证 schema 使用的 OpenCC 配置和字典。
 
-[embed-rime-runtime.sh](scripts/embed-rime-runtime.sh) 递归收集非系统绝对路径依赖，复制到 `Frameworks`，改写为 `@rpath`，移除外部搜索路径。随后按 dylib → helper → 外层应用的顺序签名并验证。当前英文 Bundle 虽然运行时不使用 Rime，仍包含相同二进制链接所需的运行库。
+[embed-rime-runtime.sh](scripts/embed-rime-runtime.sh) 递归收集非系统绝对路径依赖，复制到 `Frameworks`，改写为 `@rpath`，移除外部搜索路径。随后按 dylib → helper → 外层应用的顺序签名并验证。
 
 | 运行入口 | 目标／限制 |
 | --- | --- |
-| [install-local.sh](scripts/install-local.sh) | 构建后复制两套应用到 `~/Library/Input Methods`，终止旧进程并注册。沿用上游身份，不是已隔离的开发版安装器。 |
-| [build-installer.sh](scripts/build-installer.sh) | 构建 arm64 `.pkg` 到 `.build/dist/`，将两套应用固定到 `/Library/Input Methods`，禁止可重定位 Bundle，检查依赖、OpenCC、签名和安装包结构。 |
-| [preinstall](installer/scripts/preinstall)、[postinstall](installer/scripts/postinstall) | 停止旧进程，按精确路径／身份迁移当前用户旧副本为禁用备份，注册并启用系统副本，进行有界重试和新进程验证。会话注册最终仍可能延后到下次登录，postinstall 对这一情况给出提示并返回成功。 |
-| [check-installed-input-sources.swift](scripts/check-installed-input-sources.swift) | 单独检查两套上游 ID、版本、启用／可选状态，以及 LaunchServices 是否解析到系统路径；不适用于未经适配的单中文隔离身份。 |
+| [install-local.sh](scripts/install-local.sh) | 构建后将中文开发版复制到 `~/Library/Input Methods`，停止旧开发进程并注册。 |
+| [build-installer.sh](scripts/build-installer.sh) | 构建 arm64 `.pkg` 到 `.build/dist/`，将中文开发版固定到 `/Library/Input Methods`，校验依赖、OpenCC、签名和负载。 |
+| [preinstall](installer/scripts/preinstall)、[postinstall](installer/scripts/postinstall) | 停止旧开发进程并注册系统域开发输入源。若当前会话暂未注册成功，提示重新登录。 |
+| [check-installed-input-sources.swift](scripts/check-installed-input-sources.swift) | 校验身份、启用、可选状态和 LaunchServices 路径。默认检查系统域，`--local` 检查用户域。 |
 
-当前中文 Bundle／输入源 ID 是 `com.fufangjie.inputmethod.LinguaFlow`，English 为 `com.fufangjie.inputmethod.LinguaFlowEnglish`。身份还存在于 [plist](Resources/Info.plist)、[英文 plist](Resources/English-Info.plist)、应用注册白名单和脚本中；只修改一份 plist 不足以实现共存。
+中文开发 Bundle 与输入源 ID 均为 `com.abandoned678.inputmethod.LinguaFlowDev`。
 
 未提供证书时应用采用 ad-hoc 签名，安装包未签名。脚本支持通过 `CODE_SIGN_IDENTITY`、`INSTALLER_SIGN_IDENTITY`、`NOTARYTOOL_PROFILE` 执行正式签名和公证；完成可选公证／staple 后再生成 SHA-256。许可证和上游声明随 Bundle／安装包保留，具体见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
@@ -231,18 +226,6 @@ sequenceDiagram
 
 改分句、字符范围或取消逻辑时，先在 Core 增加失败检查，再修改集成代码；改 Rime 行为还要看桥接与真实引擎检查；改浮层要同时区分几何算法与宿主锚点采样；改安装身份要覆盖资源、注册和脚本。构建与检查命令以 [README](README.md) 及 [项目技能](.agents/skills) 为入口，不引入 Playbook 或 Nodus 作为前置条件。
 
-## 11. 与已确认首版目标的差异
+## 11. 首版兼容性状态
 
-以下是待实现／待验证项，不是本文已完成的功能：
-
-| 首版目标 | 当前代码状态 |
-| --- | --- |
-| 仅中文输入源 | 英文输入源、纠错、反向预览、双 Bundle 与双输入源注册仍在。 |
-| 按约定边界预览当前整句 | 缓冲按提交块尾字符判断，仍把英文句点视为句末；中文换行依赖 Rime 返回内容，没有独立保证每个宿主换行都形成缓冲边界。 |
-| 超过 280 字明确降级 | 当前截尾，候选拼接也没有统一的总长度保护。 |
-| `Control + Return` 原位替换当前中文句 | 当前是前缀空格／换行追加译文，没有完整的中文句范围确认、组词中拒绝及替换后状态清理流程。 |
-| 优先当前光标，失去位置则隐藏 | 字符索引 0 的矩形仍优先，无新有效锚点时可能复用旧位置，窗口移动／滚动缺少独立更新机制。 |
-| 可靠处理失焦、安全输入及编辑后的清理 | 已有停用和按键时检查，但即时事件覆盖、宿主 marked text 清理及鼠标修改后的范围可靠性仍需实测。 |
-| 隔离开发版、文本编辑与 Codex 验收 | 当前身份沿用上游；需求文档未记录完成隔离安装及这两个宿主的首版验收，不能宣称已兼容。 |
-
-后续实现以需求文档为准；完成后同时更新本表、相关实现说明和实际验证记录，不将“计划采用的结构”提前写成现有事实。
+用户域安装、输入源注册以及核心、Rime、Apple Translation 自检均已有通过记录。文本编辑和 Codex 的实际组词、浮层定位及指定范围替换仍待 [宿主验收](docs/plans/v1-host-validation.md)。本机内嵌 librime 要求 macOS 27，macOS 26 兼容性待验证。

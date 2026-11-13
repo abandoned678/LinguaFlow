@@ -1,57 +1,34 @@
 # LinguaFlow
 
-LinguaFlow 是一组面向 macOS 的本地优先双语输入源：`LinguaFlow 中文` 使用 Rime 生成拼音候选并实时显示英文，`LinguaFlow English` 直接输入英文并实时显示中文和本地拼写建议。
+LinguaFlow 是 macOS 原生中文输入法。首版开发分支提供「LinguaFlow Dev 中文」，使用 Rime 输入简体中文，并通过 Apple Translation 在本机预览当前句英文。
 
-## 当前能力
+## 首版开发行为
 
-- macOS 26 原生 InputMethodKit 输入源。
-- 全拼、简体中文，以及统一显示拼音、横向候选和英文的紧凑浮层。
-- 输入停顿 400ms 后，根据当前高亮候选生成中文到英文的本地预览，无需先确认上屏。
-- 独立的 `LinguaFlow English` 输入源直接透传英文按键，停顿后生成中文预览。
-- 英文单词输入到 2 个字母后，使用 macOS 本地词典显示最多 5 个补全/纠错候选，并在候选旁异步显示本地生成的简短中文释义。
-- 按左右或上下方向键移动候选，按 `Tab` 接受高亮项，按 `1`–`5` 直接选择；按空格则保留自己原样输入的单词。
-- 浮层跟随当前插入点，屏幕下方空间不足时自动显示在插入点上方。
-- `Control + Return` 在光标处插入当前译文。
-- `Shift + Control + Return` 换行插入当前译文。
-- 普通尾部退格会同步移除翻译上下文中的最后一个字符；出现选区、光标离开已追踪文尾、使用 Forward Delete 或宿主编辑快捷键时，会取消当前翻译并清空无法验证的上下文。
-- 切换应用、关闭输入法或进入安全输入时清空翻译上下文。
-- 翻译模型和文本均由 Apple Translation framework 在设备本地处理。
+- 输入停顿 400ms 后请求英文预览。组词时将高亮候选纳入当前句预览，候选可继续调整。
+- 使用中文句末标点和宿主确认的换行区分句子。无标点当前句超过 280 字时暂停预览与替换。
+- `Control + Return` 在中文已上屏、译文已就绪且宿主可核对范围时，用英文原位替换当前句。
+- 浮层优先使用当前光标位置。失焦、切换应用或安全输入时清理预览与上下文。
+- 文本编辑和 Codex 的真实输入及原位替换仍待验收，结果见 [首版任务清单](docs/MASTER_CHECKLIST.md)。
 
-## 安装
+## 从源码构建和安装
 
-从 [GitHub Releases](https://github.com/Janglejay/LinguaFlow/releases) 下载适用于 Apple 芯片的 `.pkg`，双击后按安装器提示完成。安装程序会一次安装并尝试启用：
-
-- `LinguaFlow 中文`
-- `LinguaFlow English`
-
-安装包已经内嵌 Rime 和全部运行依赖，最终用户不需要安装 Homebrew。系统要求为 macOS 26 或更新版本及 Apple 芯片 Mac。
-
-当前测试包尚未使用 Apple Developer ID 签名和公证。如果 macOS 拦截从 GitHub 下载的安装包，请先尝试打开一次，再前往“系统设置 → 隐私与安全性”选择“仍要打开”。正式签名和公证完成后将不再需要这个额外步骤。
-
-安装完成后可以直接从菜单栏切换两套输入法。两套输入源已由安装器启用，因此 macOS 的“添加输入法”搜索页可能不再重复显示它们；请在“当前已启用的输入源”列表或菜单栏中查找。如果列表没有立即刷新，请先关闭并重新打开系统设置，仍未出现时注销并重新登录。第一次使用翻译前，从输入法菜单选择“准备本地中英翻译…”，在随附的设置助手中允许 Apple 下载中文和英语模型。
-
-完整的安装、迁移和开发者签名说明见 [docs/INSTALL.md](docs/INSTALL.md)。`0.2.2 build 8` 的修复内容、上下文同步规则和升级说明见 [版本说明](docs/RELEASE_0.2.2.md)。
-
-## 从源码构建
-
-构建机器需要 macOS 26、Swift 工具链、Homebrew 和 `librime`：
+需要 Apple 芯片 Mac、Swift 工具链、Homebrew、librime 和 OpenCC。Swift Package 声明最低 macOS 26。本机使用的 Homebrew librime 要求 macOS 27，macOS 26 兼容性待验证。
 
 ```bash
-git clone --recurse-submodules https://github.com/Janglejay/LinguaFlow.git
-cd LinguaFlow
-brew install librime
+git submodule update --init --recursive
+brew install librime opencc
 ./scripts/install-local.sh
+./scripts/check-installed-input-sources.swift --local
 ```
 
-生成可分发安装包：
+开发版安装在当前用户的 `~/Library/Input Methods/LinguaFlowDev.app`。从菜单栏选择「LinguaFlow Dev 中文」，若未启用，可在「系统设置 → 键盘 → 文本输入」中添加。第一次使用翻译时，从输入法菜单打开「准备本地中英翻译…」，并按提示允许 Apple 下载设备端模型。
 
-```bash
-./scripts/build-installer.sh release
-```
+系统域打包方式见 [安装说明](docs/INSTALL.md)。旧版双输入源及其升级记录见 [0.2.2 版本说明](docs/RELEASE_0.2.2.md)。
 
 ## 开发验证
 
 ```bash
+swift test
 swift run linguaflow-core-checks
 
 shared_dir=$(./scripts/prepare-rime-data.sh)
@@ -67,7 +44,7 @@ swift run linguaflow-translation-checks
 
 `linguaflow-translation-checks` 在模型尚未下载时会以退出码 2 返回；这是环境状态，不是构建失败。
 
-标准 XCTest 文件保留在 `Tests/`。当前机器尚未接受完整 Xcode 许可，Command Line Tools 环境缺少 XCTest，因此日常验证暂时使用两个无依赖自检程序。
+XCTest 和自检程序可分别运行。真实宿主的操作步骤见 [首版验收表](docs/需求与待办.md#v1-host-acceptance)。
 
 ## 隐私边界
 
@@ -82,15 +59,13 @@ swift run linguaflow-translation-checks
 - 当前发布包仅支持 Apple 芯片 Mac；尚未提供 Intel 或 Universal 版本。
 - 当前测试安装包没有 Developer ID 签名和 Apple 公证，从 GitHub 下载后会出现 Gatekeeper 提示。
 - 候选暂时只支持键盘选择，尚未实现鼠标点击和翻页按钮。
-- 翻译快捷键是在光标处追加译文，不会自动替换已经上屏的原文。
-- `LinguaFlow English` 当前提供单词补全和拼写纠错；候选来自系统词典，不会根据完整语境预测下一词，更复杂的语法与表达润色不在本版本范围内。
-- 通过鼠标或上下文菜单直接修改宿主文本时，InputMethodKit 不一定立即发送按键事件；LinguaFlow 会在下一次可观察的输入事件中对账，并在发现光标或选区与已记录位置不一致时清空旧上下文。
+- 通过鼠标或上下文菜单直接修改宿主文本时，InputMethodKit 不一定立即发送按键事件；LinguaFlow 会在浮层刷新或下一次可观察的输入事件中对账，并在发现光标或选区与已记录位置不一致时清空旧上下文。
 - 尚未完成 Notes、Safari、Chrome、VS Code 等宿主的人工兼容性矩阵。
 - Apple 翻译模型需要用户首次明确授权下载。
 
 ## 目录
 
-系统结构、资源所有权和主要数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)，其中单独列出了当前实现与首版目标的差异。
+系统结构、资源所有权和主要数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 - `Sources/LinguaFlowCore`：句子缓冲、请求修订号和异步结果验旧。
 - `Sources/LinguaFlowRimeBridge`：极窄的 C/librime 边界。
