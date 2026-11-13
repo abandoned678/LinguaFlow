@@ -3,6 +3,7 @@ import Foundation
 public enum TrackedCaretReconciliationAction: Equatable, Sendable {
     case keepContext
     case clearContext
+    case checkHostLineBreak
 }
 
 public enum TrackedCaretReconciliation {
@@ -13,7 +14,10 @@ public enum TrackedCaretReconciliation {
         hasTrackedContext: Bool,
         isAwaitingHostLineBreak: Bool = false
     ) -> TrackedCaretReconciliationAction {
-        guard !hasActiveComposition, !isAwaitingHostLineBreak, hasTrackedContext else {
+        if isAwaitingHostLineBreak {
+            return .checkHostLineBreak
+        }
+        guard !hasActiveComposition, hasTrackedContext else {
             return .keepContext
         }
         guard let expectedCaretLocation else { return .clearContext }

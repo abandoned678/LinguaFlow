@@ -142,7 +142,6 @@ final class LinguaFlowInputController: IMKInputController {
             return false
         }
 
-        reconcileHostLineBreak(client: client)
         reconcileTrackedCaret(client: client)
         captureCaretAnchor(client: client)
 
@@ -374,7 +373,7 @@ final class LinguaFlowInputController: IMKInputController {
             clearDocumentContext()
             return
         }
-        reconcileTrackedCaret(client: activeClient, isPositionRefresh: true)
+        reconcileTrackedCaret(client: activeClient)
         guard panelController.ownsPanel(self) else { return }
         captureCaretAnchor(client: activeClient)
         showPanel(client: activeClient)
@@ -650,11 +649,11 @@ final class LinguaFlowInputController: IMKInputController {
         return String(compact.prefix(16)) + "…"
     }
 
-    private func reconcileHostLineBreak(client: (any IMKTextInput)?) {
+    private func reconcileHostLineBreak(client: (any IMKTextInput)?, selection: NSRange) {
         guard let location = pendingHostLineBreak else { return }
         pendingHostLineBreak = nil
         guard let client,
-              client.selectedRange() == NSRange(location: location + 1, length: 0),
+              selection == NSRange(location: location + 1, length: 0),
               client.attributedSubstring(from: NSRange(location: location, length: 1))?.string == "\n"
         else {
             clearDocumentContext()
@@ -665,16 +664,22 @@ final class LinguaFlowInputController: IMKInputController {
         updateTranslationDraftAndPanel(client: client)
     }
 
-    private func reconcileTrackedCaret(client: (any IMKTextInput)?, isPositionRefresh: Bool = false) {
+    private func reconcileTrackedCaret(client: (any IMKTextInput)?) {
+        let selection = client?.selectedRange() ?? Self.notFoundRange
         let action = TrackedCaretReconciliation.action(
             expectedCaretLocation: expectedHostCaretLocation,
-            currentSelection: client?.selectedRange() ?? Self.notFoundRange,
+            currentSelection: selection,
             hasActiveComposition: !currentPreedit.isEmpty,
             hasTrackedContext: sentenceBuffer.currentSnapshot != nil,
-            isAwaitingHostLineBreak: isPositionRefresh && pendingHostLineBreak != nil
+            isAwaitingHostLineBreak: pendingHostLineBreak != nil
         )
-        if action == .clearContext {
+        switch action {
+        case .keepContext:
+            break
+        case .clearContext:
             clearDocumentContext()
+        case .checkHostLineBreak:
+            reconcileHostLineBreak(client: client, selection: selection)
         }
     }
 

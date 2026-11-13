@@ -358,13 +358,13 @@ struct LinguaFlowCoreChecks {
         try expect(
             TrackedCaretReconciliation.action(
                 expectedCaretLocation: 24,
-                currentSelection: NSRange(location: 20, length: 4),
+                currentSelection: NSRange(location: 0, length: 0),
                 hasActiveComposition: false,
                 hasTrackedContext: true,
                 isAwaitingHostLineBreak: true
             ),
-            .keepContext,
-            "position refresh defers reconciliation until the pending host edit can be checked"
+            .checkHostLineBreak,
+            "resolve a forwarded Return when the host clears the field, even without another key"
         )
 
         try expect(
