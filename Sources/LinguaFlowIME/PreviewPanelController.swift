@@ -253,7 +253,7 @@ private final class PreviewView: NSView {
                 - 34
             var height = max(20, textHeight(translationText, width: availableTextWidth))
             if case .result = translation {
-                widths.append(textWidth("⌃↩ 替换当前句", font: shortcutFont) + 34)
+                widths.append(textWidth("\(SentenceReplacementShortcut.label) 替换当前句", font: shortcutFont) + 34)
                 height += 16
             }
             rowHeights.append(height)
@@ -332,7 +332,7 @@ private final class PreviewView: NSView {
 
         if case .result = translation {
             drawText(
-                "⌃↩ 替换当前句",
+                "\(SentenceReplacementShortcut.label) 替换当前句",
                 in: NSRect(x: 46, y: y + height + 2, width: availableWidth, height: 14),
                 color: .tertiaryLabelColor,
                 font: shortcutFont,

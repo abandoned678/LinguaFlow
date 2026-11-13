@@ -1,3 +1,4 @@
+import Carbon
 import CoreGraphics
 import Foundation
 import LinguaFlowCore
@@ -354,6 +355,27 @@ struct LinguaFlowCoreChecks {
             ),
             .keepContext,
             "position refresh defers reconciliation until the pending host edit can be checked"
+        )
+
+        try expect(
+            SentenceReplacementShortcut.matches(keyCode: UInt16(kVK_ANSI_T), control: true, shift: true),
+            true,
+            "Control + Shift + T triggers sentence replacement"
+        )
+        try expect(
+            SentenceReplacementShortcut.matches(keyCode: UInt16(kVK_Return), control: true, shift: false),
+            false,
+            "Control + Return remains available to macOS"
+        )
+        try expect(
+            SentenceReplacementShortcut.matches(keyCode: UInt16(kVK_ANSI_T), control: true, shift: false),
+            false,
+            "Control + T does not trigger replacement"
+        )
+        try expect(
+            SentenceReplacementShortcut.matches(keyCode: UInt16(kVK_ANSI_T), control: false, shift: true),
+            false,
+            "Shift + T does not trigger replacement"
         )
 
         let original = "你好👋🏽。"

@@ -137,7 +137,7 @@ sequenceDiagram
 
 ### 主动替换当前句
 
-`Control + Return` 仅在没有组词或选区、译文版本及源文匹配时继续检查。[TrackedTextReplacement](Sources/LinguaFlowCore/TrackedTextReplacement.swift) 依据已追踪句尾与句子的 UTF-16 长度求范围。控制器只读取该范围进行精确比对，匹配后通过一次 `insertText(_:replacementRange:)` 替换，并清空当前上下文。范围或内容校验失败时保留原文并显示提示。
+`Control + Shift + T` 仅在没有组词或选区、译文版本及源文匹配时继续检查。[TrackedTextReplacement](Sources/LinguaFlowCore/TrackedTextReplacement.swift) 依据已追踪句尾与句子的 UTF-16 长度求范围。控制器只读取该范围进行精确比对，匹配后通过一次 `insertText(_:replacementRange:)` 替换，并清空当前上下文。范围或内容校验失败时保留原文并显示提示。
 
 ## 6. 宿主编辑、生命周期和浮层
 

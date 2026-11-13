@@ -146,11 +146,18 @@ final class LinguaFlowInputController: IMKInputController {
         reconcileTrackedCaret(client: client)
         captureCaretAnchor(client: client)
 
-        if isReturn(event), modifiers.contains(.control) {
-            if !modifiers.contains(.shift) {
-                replaceCurrentSentence(client: client)
-            }
+        if SentenceReplacementShortcut.matches(
+            keyCode: event.keyCode,
+            control: modifiers.contains(.control),
+            shift: modifiers.contains(.shift)
+        ) {
+            replaceCurrentSentence(client: client)
             return true
+        }
+
+        if isReturn(event), modifiers.contains(.control) {
+            clearDocumentContext()
+            return false
         }
 
         if event.keyCode == 117 {
