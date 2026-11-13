@@ -344,6 +344,18 @@ struct LinguaFlowCoreChecks {
             "reject a zero fallback instead of pinning the panel to a screen corner"
         )
 
+        try expect(
+            TrackedCaretReconciliation.action(
+                expectedCaretLocation: 24,
+                currentSelection: NSRange(location: 20, length: 4),
+                hasActiveComposition: false,
+                hasTrackedContext: true,
+                isAwaitingHostLineBreak: true
+            ),
+            .keepContext,
+            "position refresh defers reconciliation until the pending host edit can be checked"
+        )
+
         print("LinguaFlow core checks passed")
     }
 }

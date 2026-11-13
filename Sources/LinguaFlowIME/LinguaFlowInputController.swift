@@ -31,6 +31,7 @@ final class LinguaFlowInputController: IMKInputController {
     private var candidateMeaningCache: [String: String] = [:]
     private var candidateTranslationProvider: OnDeviceTranslationProvider?
     private var lastValidAnchor: NSRect?
+    private var positionRefreshTask: Task<Void, Never>?
     private let panelController = PreviewPanelController.shared
     private var coordinator: TranslationCoordinator!
 
@@ -292,8 +293,11 @@ final class LinguaFlowInputController: IMKInputController {
         )
 
         if !currentPreedit.isEmpty || !currentCandidates.isEmpty || translationState != .hidden {
+            captureCaretAnchor(client: client)
             showPanel(client: client)
+            startPositionRefresh()
         } else {
+            stopPositionRefresh()
             panelController.hide(owner: self)
         }
     }
@@ -301,7 +305,7 @@ final class LinguaFlowInputController: IMKInputController {
     private func showPanel(client: (any IMKTextInput)?) {
         guard let client else { return }
         guard let lastValidAnchor else {
-            panelController.hide(owner: self)
+            panelController.hide(owner: self, relinquishOwnership: false)
             return
         }
         panelController.show(
@@ -309,6 +313,41 @@ final class LinguaFlowInputController: IMKInputController {
             near: lastValidAnchor,
             clientWindowLevel: client.windowLevel()
         )
+    }
+
+    private func startPositionRefresh() {
+        guard positionRefreshTask == nil else { return }
+        positionRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, let self else { return }
+                self.refreshPanelPosition()
+            }
+        }
+    }
+
+    private func stopPositionRefresh() {
+        positionRefreshTask?.cancel()
+        positionRefreshTask = nil
+    }
+
+    private func refreshPanelPosition() {
+        guard isActive, panelController.ownsPanel(self), let activeClient else {
+            stopPositionRefresh()
+            return
+        }
+        guard !IsSecureEventInputEnabled() else {
+            clearDocumentContext()
+            return
+        }
+        reconcileTrackedCaret(client: activeClient, isPositionRefresh: true)
+        guard panelController.ownsPanel(self) else { return }
+        captureCaretAnchor(client: activeClient)
+        showPanel(client: activeClient)
     }
 
     private func captureCaretAnchor(client: (any IMKTextInput)?) {
@@ -352,6 +391,7 @@ final class LinguaFlowInputController: IMKInputController {
     }
 
     private func clearDocumentContext() {
+        stopPositionRefresh()
         if !currentPreedit.isEmpty {
             activeClient?.setMarkedText(
                 "",
@@ -604,12 +644,13 @@ final class LinguaFlowInputController: IMKInputController {
         updateTranslationDraftAndPanel(client: client)
     }
 
-    private func reconcileTrackedCaret(client: (any IMKTextInput)?) {
+    private func reconcileTrackedCaret(client: (any IMKTextInput)?, isPositionRefresh: Bool = false) {
         let action = TrackedCaretReconciliation.action(
             expectedCaretLocation: expectedHostCaretLocation,
             currentSelection: client?.selectedRange() ?? Self.notFoundRange,
             hasActiveComposition: !currentPreedit.isEmpty,
-            hasTrackedContext: sentenceBuffer.currentSnapshot != nil
+            hasTrackedContext: sentenceBuffer.currentSnapshot != nil,
+            isAwaitingHostLineBreak: isPositionRefresh && pendingHostLineBreak != nil
         )
         if action == .clearContext {
             clearDocumentContext()

@@ -64,6 +64,10 @@ final class PreviewPanelController {
         }
     }
 
+    func ownsPanel(_ owner: AnyObject) -> Bool {
+        activeOwner == ObjectIdentifier(owner)
+    }
+
     func show(owner: AnyObject, near anchor: NSRect, clientWindowLevel: CGWindowLevel?) {
         guard activeOwner == ObjectIdentifier(owner) else { return }
 
@@ -90,10 +94,10 @@ final class PreviewPanelController {
         }
     }
 
-    func hide(owner: AnyObject) {
+    func hide(owner: AnyObject, relinquishOwnership: Bool = true) {
         guard activeOwner == nil || activeOwner == ObjectIdentifier(owner) else { return }
         panel.orderOut(nil)
-        activeOwner = nil
+        if relinquishOwnership { activeOwner = nil }
     }
 }
 
