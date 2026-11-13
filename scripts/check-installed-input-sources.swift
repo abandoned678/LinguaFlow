@@ -18,7 +18,7 @@ let expectedSources = [
             ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Input Methods/SentenceAlong.app").path
             : "/Library/Input Methods/SentenceAlong.app",
         executable: "SentenceAlongIME",
-        sourceInfoPlist: "Resources/Info.plist"
+        sourceInfoPlist: "Resources/ChineseInputMethod.plist"
     ),
 
 ]

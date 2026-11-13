@@ -1,4 +1,4 @@
-# Keep the upstream defaults, but expose only LinguaFlow's initial Simplified
+# Keep the upstream defaults, but expose only the initial Simplified
 # Chinese full-pinyin schema in the input-source menu.
 patch:
   schema_list:

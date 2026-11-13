@@ -1,10 +1,10 @@
-# LinguaFlow agent rules
+# Agent rules
 
 These rules apply to the whole repository.
 
 ## Product boundaries
 
-- LinguaFlow is a macOS-first input method. Do not add Windows TSF code.
+- This project is a macOS-first input method. Do not add Windows TSF code.
 - The typing path must remain local and must never wait for translation.
 - Translation is a sidecar preview. It may change host text only after an explicit user shortcut.
 - Track only text committed by this input method in the current input session. Do not scan arbitrary host-document history.
@@ -23,8 +23,8 @@ These rules apply to the whole repository.
 ## Development
 
 - Add a failing focused test/check before changing state-machine behavior.
-- Run both `linguaflow-core-checks` and `linguaflow-rime-checks` after input changes.
-- Build both `LinguaFlowIME` and `LinguaFlowSetup` after UI or translation changes.
+- Run both `input-core-checks` and `rime-checks` after input changes.
+- Build both `InputMethod` and `TranslationSetup` after UI or translation changes.
 - Do not copy GPL frontend code from Squirrel or MetasequoiaIME. Architectural study is allowed; implementation must remain original.
 - Preserve upstream license files and notices for all vendored/submodule data.
 
@@ -32,10 +32,10 @@ These rules apply to the whole repository.
 
 Use the focused skills under `.agents/skills/` when their task matches:
 
-- `linguaflow-host-validation`: derive or execute macOS host acceptance checks, especially in TextEdit and Codex.
-- `linguaflow-state-testing`: reproduce and test sentence, composition, caret, translation cancellation, and replacement behavior.
-- `linguaflow-build-debug`: build/package the IME and setup helper, or investigate dependencies, installed identity, stale processes, and memory growth.
+- `host-validation`: derive or execute macOS host acceptance checks, especially in TextEdit and Codex.
+- `input-state-testing`: reproduce and test sentence, composition, caret, translation cancellation, and replacement behavior.
+- `build-debug`: build/package the IME and setup helper, or investigate dependencies, installed identity, stale processes, and memory growth.
 
 These skills are self-contained and use this repository's scripts and requirements. They do not require Playbook, Nodus, company frameworks, external knowledge services, or iOS simulators. Use the available Swift/Xcode tools when they fit the operation; the repository's build, packaging, and check scripts remain authoritative for their respective outputs. No full Playbook lifecycle, delegation, or startup hook is required.
 
-Read `docs/V1.md` for the agreed first-version behavior. Requirements describe the target, not proof that the existing upstream implementation already supports it. Keep implementation evidence and host verification separate.
+Read `docs/V1_REQUIREMENTS.md` for the agreed first-version behavior. Requirements describe the target, not proof that the existing upstream implementation already supports it. Keep implementation evidence and host verification separate.

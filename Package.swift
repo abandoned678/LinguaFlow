@@ -3,23 +3,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "LinguaFlow",
+    name: "MacInputMethod",
     platforms: [
         .macOS("26.0"),
     ],
     products: [
-        .library(name: "LinguaFlowCore", targets: ["LinguaFlowCore"]),
-        .library(name: "LinguaFlowRime", targets: ["LinguaFlowRime"]),
-        .executable(name: "LinguaFlowIME", targets: ["LinguaFlowIME"]),
-        .executable(name: "LinguaFlowSetup", targets: ["LinguaFlowSetup"]),
-        .executable(name: "linguaflow-core-checks", targets: ["LinguaFlowCoreChecks"]),
-        .executable(name: "linguaflow-rime-checks", targets: ["LinguaFlowRimeChecks"]),
-        .executable(name: "linguaflow-translation-checks", targets: ["LinguaFlowTranslationChecks"]),
+        .library(name: "InputCore", targets: ["InputCore"]),
+        .library(name: "RimeInput", targets: ["RimeInput"]),
+        .executable(name: "InputMethod", targets: ["InputMethod"]),
+        .executable(name: "TranslationSetup", targets: ["TranslationSetup"]),
+        .executable(name: "input-core-checks", targets: ["InputCoreChecks"]),
+        .executable(name: "rime-checks", targets: ["RimeChecks"]),
+        .executable(name: "translation-checks", targets: ["TranslationChecks"]),
     ],
     targets: [
-        .target(name: "LinguaFlowCore"),
+        .target(name: "InputCore"),
         .target(
-            name: "LinguaFlowRimeBridge",
+            name: "RimeBridge",
             publicHeadersPath: "include",
             cSettings: [
                 .unsafeFlags(["-I/opt/homebrew/opt/librime/include"]),
@@ -34,12 +34,12 @@ let package = Package(
             ]
         ),
         .target(
-            name: "LinguaFlowRime",
-            dependencies: ["LinguaFlowRimeBridge"]
+            name: "RimeInput",
+            dependencies: ["RimeBridge"]
         ),
         .executableTarget(
-            name: "LinguaFlowIME",
-            dependencies: ["LinguaFlowCore", "LinguaFlowRime"],
+            name: "InputMethod",
+            dependencies: ["InputCore", "RimeInput"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
@@ -47,7 +47,7 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "LinguaFlowSetup",
+            name: "TranslationSetup",
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI"),
@@ -55,23 +55,23 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "LinguaFlowCoreChecks",
-            dependencies: ["LinguaFlowCore"]
+            name: "InputCoreChecks",
+            dependencies: ["InputCore"]
         ),
         .executableTarget(
-            name: "LinguaFlowRimeChecks",
-            dependencies: ["LinguaFlowRime"]
+            name: "RimeChecks",
+            dependencies: ["RimeInput"]
         ),
         .executableTarget(
-            name: "LinguaFlowTranslationChecks",
-            dependencies: ["LinguaFlowCore"],
+            name: "TranslationChecks",
+            dependencies: ["InputCore"],
             linkerSettings: [
                 .linkedFramework("Translation"),
             ]
         ),
         .testTarget(
-            name: "LinguaFlowCoreTests",
-            dependencies: ["LinguaFlowCore"]
+            name: "InputCoreTests",
+            dependencies: ["InputCore"]
         ),
     ],
     swiftLanguageModes: [.v5]

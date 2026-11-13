@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>SentenceAlong English</string>
+    <key>CFBundleExecutable</key>
+    <string>SentenceAlongEnglishIME</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.abandoned678.inputmethod.SentenceAlongEnglish</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>SentenceAlong English</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.2.2</string>
+    <key>CFBundleVersion</key>
+    <string>8</string>
+    <key>InputMethodConnectionName</key>
+    <string>com.abandoned678.inputmethod.SentenceAlongEnglish_Connection</string>
+    <key>InputMethodServerControllerClass</key>
+    <string>InputMethodController</string>
+    <key>InputMethodServerDataSourceClass</key>
+    <string>InputMethodController</string>
+    <key>InputMethodServerDelegateClass</key>
+    <string>InputMethodController</string>
+    <key>InputMethodLanguageMode</key>
+    <string>English</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>26.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>TISIconIsTemplate</key>
+    <true/>
+    <key>TISInputSourceID</key>
+    <string>com.abandoned678.inputmethod.SentenceAlongEnglish</string>
+    <key>TISIntendedLanguage</key>
+    <string>en</string>
+    <key>tsInputMethodCharacterRepertoireKey</key>
+    <array>
+        <string>Latn</string>
+    </array>
+    <key>tsInputMethodIconFileKey</key>
+    <string>InputSourceIconTemplate.tiff</string>
+</dict>
+</plist>

@@ -19,5 +19,5 @@
   </choice>
   <pkg-ref id="com.abandoned678.pkg.SentenceAlong.input-methods"
            version="@PACKAGE_VERSION@"
-           onConclusion="none">SentenceAlong-input-methods.pkg</pkg-ref>
+           onConclusion="none">input-methods.pkg</pkg-ref>
 </installer-gui-script>

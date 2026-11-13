@@ -1,6 +1,6 @@
 # Third-party notices
 
-LinguaFlow's own source code is MIT licensed. The following components retain their own licenses and copyright notices.
+This project's source code is MIT licensed. The following components retain their own licenses and copyright notices.
 
 ## librime
 

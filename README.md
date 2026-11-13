@@ -9,7 +9,7 @@
 - 使用句末标点和宿主确认的换行区分句子。无标点当前句超过 280 字时暂停预览与替换。
 - `Control + Shift + T` 在中文已上屏、译文已就绪且宿主可核对范围时，用英文原位替换当前句。
 - 浮层优先使用当前光标位置。失焦、切换应用或安全输入时清理预览与上下文。
-- 文本编辑和 Codex 的真实输入及原位替换已通过验收，结果见 [首版任务清单](docs/V1.md)。
+- 文本编辑和 Codex 的真实输入及原位替换已通过验收，结果见 [首版任务清单](docs/V1_REQUIREMENTS.md)。
 
 ## 从源码构建和安装
 
@@ -24,28 +24,28 @@ brew install librime opencc
 
 开发版安装在当前用户的 `~/Library/Input Methods/SentenceAlong.app`。从菜单栏选择「随键译」，若未启用，可在「系统设置 → 键盘 → 文本输入」中添加。第一次使用翻译时，从输入法菜单打开「准备本地中英翻译…」，并按提示允许 Apple 下载设备端模型。
 
-系统域打包方式见 [安装说明](docs/INSTALL.md)。旧版双输入源及其升级记录见 [0.2.2 版本说明](docs/RELEASE_0.2.2.md)。
+系统域打包方式见 [安装说明](docs/INSTALL.md)。旧版双输入源及其升级记录见 [0.2.2 版本说明](docs/releases/0.2.2.md)。
 
 ## 开发验证
 
 ```bash
 swift test
-swift run linguaflow-core-checks
+swift run input-core-checks
 
 shared_dir=$(./scripts/prepare-rime-data.sh)
 user_data_dir=$(mktemp -d .build/rime-user-check.XXXXXX)
-swift run linguaflow-rime-checks "$shared_dir" "$user_data_dir"
+swift run rime-checks "$shared_dir" "$user_data_dir"
 
-swift run linguaflow-translation-checks
+swift run translation-checks
 ./scripts/build-app.sh release
 ./scripts/build-installer.sh release
 # 安装刚生成的 .pkg 后再运行：
 ./scripts/check-installed-input-sources.swift
 ```
 
-`linguaflow-translation-checks` 在模型尚未下载时会以退出码 2 返回；这是环境状态，不是构建失败。
+`translation-checks` 在模型尚未下载时会以退出码 2 返回；这是环境状态，不是构建失败。
 
-XCTest 和自检程序可分别运行。真实宿主的操作步骤见 [首版验收表](docs/V1.md#v1-host-acceptance)。
+XCTest 和自检程序可分别运行。真实宿主的操作步骤见 [首版验收表](docs/V1_REQUIREMENTS.md#v1-host-acceptance)。
 
 ## 隐私边界
 
@@ -68,11 +68,11 @@ XCTest 和自检程序可分别运行。真实宿主的操作步骤见 [首版�
 
 系统结构、资源所有权和主要数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-- `Sources/LinguaFlowCore`：句子缓冲、请求修订号和异步结果验旧。
-- `Sources/LinguaFlowRimeBridge`：极窄的 C/librime 边界。
-- `Sources/LinguaFlowRime`：Swift 拼音引擎封装。
-- `Sources/LinguaFlowIME`：InputMethodKit、候选/英文预览浮层。
-- `Sources/LinguaFlowSetup`：Apple 本地翻译模型准备助手。
+- `Sources/InputCore`：句子缓冲、请求修订号和异步结果验旧。
+- `Sources/RimeBridge`：极窄的 C/librime 边界。
+- `Sources/RimeInput`：Swift 拼音引擎封装。
+- `Sources/InputMethod`：InputMethodKit、候选/英文预览浮层。
+- `Sources/TranslationSetup`：Apple 本地翻译模型准备助手。
 - `Vendor/`：以 Git submodule 引用的 Rime 配置和词典数据。
 
 项目代码采用 MIT License。Rime 组件和输入方案保留各自许可证，详见 `THIRD_PARTY_NOTICES.md`。

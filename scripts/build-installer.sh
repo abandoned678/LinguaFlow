@@ -27,9 +27,9 @@ if [[ ! -x "$project_dir/scripts/embed-rime-runtime.sh" ]]; then
 fi
 
 package_version=$(/usr/libexec/PlistBuddy \
-  -c 'Print :CFBundleShortVersionString' "$project_dir/Resources/Info.plist")
+  -c 'Print :CFBundleShortVersionString' "$project_dir/Resources/ChineseInputMethod.plist")
 bundle_version=$(/usr/libexec/PlistBuddy \
-  -c 'Print :CFBundleVersion' "$project_dir/Resources/Info.plist")
+  -c 'Print :CFBundleVersion' "$project_dir/Resources/ChineseInputMethod.plist")
 full_version="${package_version}.${bundle_version}"
 
 if [[ "$app_sign_identity" == "-" && -z "$installer_sign_identity" ]]; then
@@ -179,7 +179,7 @@ if [[ "$chinese_component_count" -ne 1 ]]; then
   exit 65
 fi
 
-component_package="$work_dir/SentenceAlong-input-methods.pkg"
+component_package="$work_dir/input-methods.pkg"
 pkgbuild \
   --root "$payload_root" \
   --component-plist "$component_plist" \
@@ -218,10 +218,10 @@ productbuild "${productbuild_arguments[@]}" "$staged_package" >/dev/null
 
 pkgutil --expand "$staged_package" "$work_dir/expanded" >/dev/null
 test -f "$work_dir/expanded/Distribution"
-test -f "$work_dir/expanded/SentenceAlong-input-methods.pkg/Payload"
-test -f "$work_dir/expanded/SentenceAlong-input-methods.pkg/Scripts/postinstall"
+test -f "$work_dir/expanded/input-methods.pkg/Payload"
+test -f "$work_dir/expanded/input-methods.pkg/Scripts/postinstall"
 
-package_info="$work_dir/expanded/SentenceAlong-input-methods.pkg/PackageInfo"
+package_info="$work_dir/expanded/input-methods.pkg/PackageInfo"
 package_relocatable=$(/usr/bin/xmllint \
   --xpath 'string(/pkg-info/@relocatable)' "$package_info")
 if [[ "$package_relocatable" != false ]]; then
