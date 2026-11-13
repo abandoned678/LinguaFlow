@@ -41,7 +41,7 @@ else
   exit 64
 fi
 
-package_filename="LinguaFlow-${package_version}-macOS-${architecture}${signature_suffix}.pkg"
+package_filename="LinguaFlowDev-${package_version}-macOS-${architecture}${signature_suffix}.pkg"
 output_package="$dist_dir/$package_filename"
 
 mkdir -p "$project_dir/.build" "$dist_dir"
@@ -60,10 +60,10 @@ CODE_SIGN_IDENTITY="$app_sign_identity" \
 payload_root="$work_dir/root"
 payload_input_methods="$payload_root/Library/Input Methods"
 mkdir -p "$payload_input_methods"
-/usr/bin/ditto "$project_dir/.build/LinguaFlow.app" \
-  "$payload_input_methods/LinguaFlow.app"
-/usr/bin/ditto "$project_dir/.build/LinguaFlowEnglish.app" \
-  "$payload_input_methods/LinguaFlowEnglish.app"
+/usr/bin/ditto "$project_dir/.build/LinguaFlowDev.app" \
+  "$payload_input_methods/LinguaFlowDev.app"
+/usr/bin/ditto "$project_dir/.build/LinguaFlowDevEnglish.app" \
+  "$payload_input_methods/LinguaFlowDevEnglish.app"
 /usr/bin/xattr -cr "$payload_root"
 
 verify_self_contained_bundle() {
@@ -130,8 +130,8 @@ verify_self_contained_bundle() {
   done
 }
 
-verify_self_contained_bundle "$payload_input_methods/LinguaFlow.app"
-verify_self_contained_bundle "$payload_input_methods/LinguaFlowEnglish.app"
+verify_self_contained_bundle "$payload_input_methods/LinguaFlowDev.app"
+verify_self_contained_bundle "$payload_input_methods/LinguaFlowDevEnglish.app"
 
 for opencc_resource in \
   t2s.json \
@@ -145,7 +145,7 @@ for opencc_resource in \
   HKVariants.ocd2 \
   TWVariantsPhrases.ocd2 \
   TWVariants.ocd2; do
-  if [[ ! -r "$payload_input_methods/LinguaFlow.app/Contents/Resources/Rime/opencc/$opencc_resource" ]]; then
+  if [[ ! -r "$payload_input_methods/LinguaFlowDev.app/Contents/Resources/Rime/opencc/$opencc_resource" ]]; then
     echo "Chinese input method is missing OpenCC data: $opencc_resource" >&2
     exit 65
   fi
@@ -164,13 +164,13 @@ while component_path=$(/usr/libexec/PlistBuddy \
   -c "Print :$component_index:RootRelativeBundlePath" \
   "$component_plist" 2>/dev/null); do
   case "$component_path" in
-    "Library/Input Methods/LinguaFlow.app")
+    "Library/Input Methods/LinguaFlowDev.app")
       /usr/libexec/PlistBuddy \
         -c "Set :$component_index:BundleIsRelocatable false" \
         "$component_plist"
       ((chinese_component_count += 1))
       ;;
-    "Library/Input Methods/LinguaFlowEnglish.app")
+    "Library/Input Methods/LinguaFlowDevEnglish.app")
       /usr/libexec/PlistBuddy \
         -c "Set :$component_index:BundleIsRelocatable false" \
         "$component_plist"
@@ -193,7 +193,7 @@ component_package="$work_dir/LinguaFlow-input-methods.pkg"
 pkgbuild \
   --root "$payload_root" \
   --component-plist "$component_plist" \
-  --identifier com.fufangjie.pkg.LinguaFlow.input-methods \
+  --identifier com.abandoned678.pkg.LinguaFlowDev.input-methods \
   --version "$full_version" \
   --install-location / \
   --ownership recommended \
@@ -247,8 +247,8 @@ if [[ "$relocatable_bundle_count" != 0 ]]; then
 fi
 
 for expected_bundle_path in \
-  './Library/Input Methods/LinguaFlow.app' \
-  './Library/Input Methods/LinguaFlowEnglish.app'; do
+  './Library/Input Methods/LinguaFlowDev.app' \
+  './Library/Input Methods/LinguaFlowDevEnglish.app'; do
   packaged_bundle_count=$(/usr/bin/xmllint \
     --xpath "count(/pkg-info/bundle[@path='$expected_bundle_path'])" \
     "$package_info")
@@ -259,8 +259,8 @@ for expected_bundle_path in \
 done
 
 for expected_bundle_identifier in \
-  com.fufangjie.inputmethod.LinguaFlow \
-  com.fufangjie.inputmethod.LinguaFlowEnglish; do
+  com.abandoned678.inputmethod.LinguaFlowDev \
+  com.abandoned678.inputmethod.LinguaFlowDevEnglish; do
   upgrade_bundle_count=$(/usr/bin/xmllint \
     --xpath "count(/pkg-info/upgrade-bundle/bundle[@id='$expected_bundle_identifier'])" \
     "$package_info")

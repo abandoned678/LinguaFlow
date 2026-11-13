@@ -16,9 +16,9 @@ final class LinguaFlowApplicationDelegate: NSObject, NSApplicationDelegate {
         }
 
         let bundle = Bundle.main
-        let identifier = bundle.bundleIdentifier ?? "com.fufangjie.inputmethod.LinguaFlow"
+        let identifier = bundle.bundleIdentifier ?? "com.abandoned678.inputmethod.LinguaFlowDev"
         let connectionName = bundle.object(forInfoDictionaryKey: "InputMethodConnectionName") as? String
-            ?? "com.fufangjie.inputmethod.LinguaFlow_Connection"
+            ?? "com.abandoned678.inputmethod.LinguaFlowDev_Connection"
         inputMethodServer = IMKServer(name: connectionName, bundleIdentifier: identifier)
     }
 }
@@ -79,10 +79,10 @@ enum LinguaFlowApplication {
     private static func hasSupportedInstallationPath(bundleIdentifier: String) -> Bool {
         let bundleName: String
         switch bundleIdentifier {
-        case "com.fufangjie.inputmethod.LinguaFlow":
-            bundleName = "LinguaFlow.app"
-        case "com.fufangjie.inputmethod.LinguaFlowEnglish":
-            bundleName = "LinguaFlowEnglish.app"
+        case "com.abandoned678.inputmethod.LinguaFlowDev":
+            bundleName = "LinguaFlowDev.app"
+        case "com.abandoned678.inputmethod.LinguaFlowDevEnglish":
+            bundleName = "LinguaFlowDevEnglish.app"
         default:
             return false
         }

@@ -31,6 +31,12 @@
 
 在同一提交更新 `Resources/`、`AppEnvironment.swift`、`LinguaFlowApplication.swift` 以及受影响的构建、安装和检查脚本。先确定一致的开发身份值和预期安装路径，再核对 IMK、TIS、助手、Rime 数据目录及安装注册目标。保留现有输出行为直到 A3。验收时构建开发版并检查 plist、签名、路径和注册入口。实际共存由 E1 核验。
 
+### A2 执行记录
+
+开发身份采用 `LinguaFlow Dev`，中文 Bundle 和输入源 ID 均为 `com.abandoned678.inputmethod.LinguaFlowDev`，Rime 数据位于 `~/Library/Application Support/LinguaFlowDev/Rime`。开发包拥有独立的连接名、助手标识和可执行文件名。开发安装器只注册开发身份，移除了面向旧上游副本的迁移流程。
+
+Release 构建、plist、签名和两套开发产物的身份检查通过。Core 和真实 Rime 自检通过。安装与共存验证见 E1。
+
 ## A3 仅提供中文
 
 核对 `build-app.sh`、`build-installer.sh`、`install-local.sh`、`installer/` 和 `check-installed-input-sources.swift`，在同一提交收敛组装、负载、注册及检查目标。可以保留英文相关源码。构建两项产品并检查安装包清单、中文资源、内嵌依赖及许可。用残留英文产物的构建目录再核对负载，确认注册脚本只针对开发版中文身份。

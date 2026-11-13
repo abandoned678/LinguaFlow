@@ -722,7 +722,7 @@ final class LinguaFlowInputController: IMKInputController {
         let setupURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Helpers", isDirectory: true)
-            .appendingPathComponent("LinguaFlowSetup.app", isDirectory: true)
+            .appendingPathComponent("LinguaFlowDevSetup.app", isDirectory: true)
         NSWorkspace.shared.open(setupURL)
     }
 

@@ -13,15 +13,15 @@ struct ExpectedInputSource {
 
 let expectedSources = [
     ExpectedInputSource(
-        identifier: "com.fufangjie.inputmethod.LinguaFlow",
-        path: "/Library/Input Methods/LinguaFlow.app",
-        executable: "LinguaFlowIME",
+        identifier: "com.abandoned678.inputmethod.LinguaFlowDev",
+        path: "/Library/Input Methods/LinguaFlowDev.app",
+        executable: "LinguaFlowDevIME",
         sourceInfoPlist: "Resources/Info.plist"
     ),
     ExpectedInputSource(
-        identifier: "com.fufangjie.inputmethod.LinguaFlowEnglish",
-        path: "/Library/Input Methods/LinguaFlowEnglish.app",
-        executable: "LinguaFlowEnglishIME",
+        identifier: "com.abandoned678.inputmethod.LinguaFlowDevEnglish",
+        path: "/Library/Input Methods/LinguaFlowDevEnglish.app",
+        executable: "LinguaFlowDevEnglishIME",
         sourceInfoPlist: "Resources/English-Info.plist"
     ),
 ]

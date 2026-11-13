@@ -5,10 +5,10 @@ set -euo pipefail
 project_dir=${0:A:h:h}
 configuration=${1:-release}
 code_sign_identity=${CODE_SIGN_IDENTITY:--}
-app_bundle="$project_dir/.build/LinguaFlow.app"
-english_bundle="$project_dir/.build/LinguaFlowEnglish.app"
-helper_bundle="$app_bundle/Contents/Helpers/LinguaFlowSetup.app"
-english_helper_bundle="$english_bundle/Contents/Helpers/LinguaFlowSetup.app"
+app_bundle="$project_dir/.build/LinguaFlowDev.app"
+english_bundle="$project_dir/.build/LinguaFlowDevEnglish.app"
+helper_bundle="$app_bundle/Contents/Helpers/LinguaFlowDevSetup.app"
+english_helper_bundle="$english_bundle/Contents/Helpers/LinguaFlowDevSetup.app"
 
 cd "$project_dir"
 
@@ -32,7 +32,7 @@ mkdir -p "$english_bundle/Contents/Resources/ThirdPartyLicenses"
 mkdir -p "$english_helper_bundle/Contents/MacOS"
 
 cp "$project_dir/Resources/Info.plist" "$app_bundle/Contents/Info.plist"
-cp "$binary_dir/LinguaFlowIME" "$app_bundle/Contents/MacOS/LinguaFlowIME"
+cp "$binary_dir/LinguaFlowIME" "$app_bundle/Contents/MacOS/LinguaFlowDevIME"
 "$project_dir/scripts/prepare-rime-data.sh" "$app_bundle/Contents/Resources/Rime" >/dev/null
 swift "$project_dir/scripts/make-icon.swift" "$app_bundle/Contents/Resources/InputSourceIconTemplate.tiff"
 cp "$project_dir/LICENSE" "$app_bundle/Contents/Resources/LinguaFlow-LICENSE.txt"
@@ -47,10 +47,10 @@ cp "$project_dir/Vendor/rime-essay/LICENSE" \
   "$app_bundle/Contents/Resources/ThirdPartyLicenses/RimeEssay-LICENSE.txt"
 
 cp "$project_dir/Resources/Setup-Info.plist" "$helper_bundle/Contents/Info.plist"
-cp "$binary_dir/LinguaFlowSetup" "$helper_bundle/Contents/MacOS/LinguaFlowSetup"
+cp "$binary_dir/LinguaFlowSetup" "$helper_bundle/Contents/MacOS/LinguaFlowDevSetup"
 
 cp "$project_dir/Resources/English-Info.plist" "$english_bundle/Contents/Info.plist"
-cp "$binary_dir/LinguaFlowIME" "$english_bundle/Contents/MacOS/LinguaFlowEnglishIME"
+cp "$binary_dir/LinguaFlowIME" "$english_bundle/Contents/MacOS/LinguaFlowDevEnglishIME"
 swift "$project_dir/scripts/make-icon.swift" "$english_bundle/Contents/Resources/InputSourceIconTemplate.tiff" "EN"
 cp "$project_dir/LICENSE" "$english_bundle/Contents/Resources/LinguaFlow-LICENSE.txt"
 cp "$project_dir/THIRD_PARTY_NOTICES.md" "$english_bundle/Contents/Resources/THIRD_PARTY_NOTICES.md"
@@ -58,7 +58,7 @@ cp "$project_dir/installer/ThirdPartyLicenses"/* \
   "$english_bundle/Contents/Resources/ThirdPartyLicenses/"
 
 cp "$project_dir/Resources/Setup-Info.plist" "$english_helper_bundle/Contents/Info.plist"
-cp "$binary_dir/LinguaFlowSetup" "$english_helper_bundle/Contents/MacOS/LinguaFlowSetup"
+cp "$binary_dir/LinguaFlowSetup" "$english_helper_bundle/Contents/MacOS/LinguaFlowDevSetup"
 
 "$project_dir/scripts/embed-rime-runtime.sh" "$app_bundle" >/dev/null
 "$project_dir/scripts/embed-rime-runtime.sh" "$english_bundle" >/dev/null
