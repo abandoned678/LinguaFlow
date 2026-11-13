@@ -13,7 +13,7 @@
 
 若菜单栏未显示该输入源，可在「系统设置 → 键盘 → 文本输入 → 编辑」中添加。第一次使用翻译前，从输入法菜单选择「准备本地中英翻译…」，按提示允许 Apple 下载设备端中英翻译模型。
 
-构建面向 Apple 芯片 Mac。源码声明最低 macOS 26，本机 Homebrew librime 产物要求 macOS 27。宿主和系统兼容性记录见 [首版任务清单](MASTER_CHECKLIST.md)。
+构建面向 Apple 芯片 Mac。源码声明最低 macOS 26，本机 Homebrew librime 产物要求 macOS 27。宿主和系统兼容性记录见 [首版任务清单](V1.md)。
 
 ## 开发者构建
 

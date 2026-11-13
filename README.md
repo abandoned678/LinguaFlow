@@ -9,7 +9,7 @@ LinguaFlow 是 macOS 原生中文输入法。首版开发分支提供「LinguaFl
 - 使用句末标点和宿主确认的换行区分句子。无标点当前句超过 280 字时暂停预览与替换。
 - `Control + Shift + T` 在中文已上屏、译文已就绪且宿主可核对范围时，用英文原位替换当前句。
 - 浮层优先使用当前光标位置。失焦、切换应用或安全输入时清理预览与上下文。
-- 文本编辑和 Codex 的真实输入及原位替换仍待验收，结果见 [首版任务清单](docs/MASTER_CHECKLIST.md)。
+- 文本编辑和 Codex 的真实输入及原位替换已通过验收，结果见 [首版任务清单](docs/V1.md)。
 
 ## 从源码构建和安装
 
@@ -45,7 +45,7 @@ swift run linguaflow-translation-checks
 
 `linguaflow-translation-checks` 在模型尚未下载时会以退出码 2 返回；这是环境状态，不是构建失败。
 
-XCTest 和自检程序可分别运行。真实宿主的操作步骤见 [首版验收表](docs/需求与待办.md#v1-host-acceptance)。
+XCTest 和自检程序可分别运行。真实宿主的操作步骤见 [首版验收表](docs/V1.md#v1-host-acceptance)。
 
 ## 隐私边界
 

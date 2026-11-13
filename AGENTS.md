@@ -38,4 +38,4 @@ Use the focused skills under `.agents/skills/` when their task matches:
 
 These skills are self-contained and use this repository's scripts and requirements. They do not require Playbook, Nodus, company frameworks, external knowledge services, or iOS simulators. Use the available Swift/Xcode tools when they fit the operation; the repository's build, packaging, and check scripts remain authoritative for their respective outputs. No full Playbook lifecycle, delegation, or startup hook is required.
 
-Read `docs/需求与待办.md` for the agreed first-version behavior. Requirements describe the target, not proof that the existing upstream implementation already supports it. Keep implementation evidence and host verification separate.
+Read `docs/V1.md` for the agreed first-version behavior. Requirements describe the target, not proof that the existing upstream implementation already supports it. Keep implementation evidence and host verification separate.

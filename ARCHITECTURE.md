@@ -1,8 +1,8 @@
 # LinguaFlow 架构与数据流
 
-本文描述首版开发分支的系统结构和数据流。代码基线为 `ea44d71`。构建、自检和宿主实测结果见 [首版任务清单](docs/MASTER_CHECKLIST.md)。
+本文描述首版的系统结构和数据流。构建、自检和宿主实测结果见 [首版任务清单](docs/V1.md)。
 
-[AGENTS.md](AGENTS.md) 定义必须遵守的开发约束，[需求与待办](docs/需求与待办.md) 定义已确认的首版目标。本文解释现有实现；修改模块依赖、数据流、生命周期或安装身份时同步维护本文。
+[AGENTS.md](AGENTS.md) 定义必须遵守的开发约束，[首版文档](docs/V1.md) 定义已确认的首版目标。本文解释现有实现；修改模块依赖、数据流、生命周期或安装身份时同步维护本文。
 
 ## 1. 系统边界
 
@@ -222,10 +222,10 @@ sequenceDiagram
 | 真实 Rime | [LinguaFlowRimeChecks](Sources/LinguaFlowRimeChecks/main.swift) | 使用真实 runtime／临时用户目录检查 OpenCC 资源、Shift 标点、拼音候选及上屏；`ceshi` 要求含“测试”，`nihao` 上屏只断言非空，不是固定文本断言。 |
 | 真实模型 | [LinguaFlowTranslationChecks](Sources/LinguaFlowTranslationChecks/main.swift) | Apple 固定句子的双向翻译冒烟；模型未安装返回 2，不证明翻译延迟、任意措辞质量或最新状态验旧。 |
 | 编译／应用／安装包 | `swift build` 及构建脚本 | 分别验证编译、Bundle 和分发结构；不证明当前会话实际加载了该构建。 |
-| 真实宿主 | [需求验收表](docs/需求与待办.md)、[宿主验收技能](.agents/skills/linguaflow-host-validation/SKILL.md) | 文本编辑和 Codex 分别实测输入、定位、生命周期与替换，不从其他层的通过推断兼容性。 |
+| 真实宿主 | [需求验收表](docs/V1.md#v1-host-acceptance)、[宿主验收技能](.agents/skills/linguaflow-host-validation/SKILL.md) | 文本编辑和 Codex 分别实测输入、定位、生命周期与替换，不从其他层的通过推断兼容性。 |
 
 改分句、字符范围或取消逻辑时，先在 Core 增加失败检查，再修改集成代码；改 Rime 行为还要看桥接与真实引擎检查；改浮层要同时区分几何算法与宿主锚点采样；改安装身份要覆盖资源、注册和脚本。构建与检查命令以 [README](README.md) 及 [项目技能](.agents/skills) 为入口，不引入 Playbook 或 Nodus 作为前置条件。
 
 ## 11. 首版兼容性状态
 
-用户域安装、输入源注册以及核心、Rime、Apple Translation 自检均已有通过记录。文本编辑和 Codex 的实际组词、浮层定位及指定范围替换仍待 [宿主验收](docs/plans/v1-host-validation.md)。本机内嵌 librime 要求 macOS 27，macOS 26 兼容性待验证。
+用户域安装、输入源注册以及核心、Rime、Apple Translation 自检均已有通过记录。文本编辑和 Codex 的实际组词、浮层定位及指定范围替换均已完成实测，结果见 [宿主验收](docs/V1.md#v1-host-acceptance)。本机内嵌 librime 要求 macOS 27，macOS 26 兼容性待验证。
