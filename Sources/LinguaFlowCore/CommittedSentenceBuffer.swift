@@ -4,11 +4,13 @@ public struct SentenceSnapshot: Equatable, Sendable {
     public let text: String
     public let revision: UInt64
     public let isFinal: Bool
+    public let isOverlong: Bool
 
-    public init(text: String, revision: UInt64, isFinal: Bool) {
+    public init(text: String, revision: UInt64, isFinal: Bool, isOverlong: Bool = false) {
         self.text = text
         self.revision = revision
         self.isFinal = isFinal
+        self.isOverlong = isOverlong
     }
 }
 
@@ -18,6 +20,7 @@ public struct CommittedSentenceBuffer: Sendable {
     private let maxCharacters: Int
     private let periodEndsSentence: Bool
     private var text = ""
+    private var isOverlong = false
     private var startsNewSentenceOnNextAppend = false
     private var lastSnapshot: SentenceSnapshot?
 
@@ -53,20 +56,21 @@ public struct CommittedSentenceBuffer: Sendable {
             let terminal = isTerminal(character)
             if startsNewSentenceOnNextAppend, !terminal {
                 text.removeAll(keepingCapacity: true)
+                isOverlong = false
             }
             text.append(character)
+            if text.count > maxCharacters {
+                isOverlong = true
+                text.removeFirst()
+            }
             changed = true
             startsNewSentenceOnNextAppend = terminal
         }
         guard changed else { return nil }
 
-        if text.count > maxCharacters {
-            text = String(text.suffix(maxCharacters))
-        }
-
         revision &+= 1
         let isFinal = startsNewSentenceOnNextAppend
-        let snapshot = SentenceSnapshot(text: text, revision: revision, isFinal: isFinal)
+        let snapshot = SentenceSnapshot(text: text, revision: revision, isFinal: isFinal, isOverlong: isOverlong)
         lastSnapshot = snapshot
         startsNewSentenceOnNextAppend = isFinal
         return snapshot
@@ -78,6 +82,7 @@ public struct CommittedSentenceBuffer: Sendable {
         with replacement: String
     ) -> SentenceSnapshot? {
         guard
+            !isOverlong,
             range.location != NSNotFound,
             let stringRange = Range(range, in: text)
         else {
@@ -86,6 +91,7 @@ public struct CommittedSentenceBuffer: Sendable {
 
         text.replaceSubrange(stringRange, with: replacement)
         if text.count > maxCharacters {
+            isOverlong = true
             text = String(text.suffix(maxCharacters))
         }
 
@@ -97,7 +103,7 @@ public struct CommittedSentenceBuffer: Sendable {
         }
 
         let isFinal = text.last.map(isTerminal) ?? false
-        let snapshot = SentenceSnapshot(text: text, revision: revision, isFinal: isFinal)
+        let snapshot = SentenceSnapshot(text: text, revision: revision, isFinal: isFinal, isOverlong: isOverlong)
         lastSnapshot = snapshot
         startsNewSentenceOnNextAppend = isFinal
         return snapshot
@@ -119,7 +125,8 @@ public struct CommittedSentenceBuffer: Sendable {
         let snapshot = SentenceSnapshot(
             text: text,
             revision: revision,
-            isFinal: text.last.map(isTerminal) ?? false
+            isFinal: startsNewSentenceOnNextAppend,
+            isOverlong: isOverlong
         )
         lastSnapshot = snapshot
         return snapshot
@@ -127,6 +134,7 @@ public struct CommittedSentenceBuffer: Sendable {
 
     public mutating func reset() {
         text.removeAll(keepingCapacity: false)
+        isOverlong = false
         startsNewSentenceOnNextAppend = false
         lastSnapshot = nil
         revision &+= 1

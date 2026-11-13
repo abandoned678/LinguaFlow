@@ -290,6 +290,19 @@ struct LinguaFlowCoreChecks {
             "use the actual Rime commit after composition"
         )
 
+        var longSentence = CommittedSentenceBuffer(maxCharacters: 280)
+        let limitText = String(repeating: "字", count: 280)
+        _ = longSentence.append(limitText)
+        try expect(LiveTranslationDraft.sourceText(committed: longSentence.currentSnapshot, provisionalCandidate: nil), limitText, "preview at the limit")
+        try expect(LiveTranslationDraft.sourceText(committed: longSentence.currentSnapshot, provisionalCandidate: "词"), nil, "provisional candidate can exceed the limit")
+        _ = longSentence.append("字")
+        try expect(LiveTranslationDraft.sourceText(committed: longSentence.currentSnapshot, provisionalCandidate: nil), nil, "never translate an overlong sentence suffix")
+        _ = longSentence.removeLastCharacter()
+        try expect(LiveTranslationDraft.sourceText(committed: longSentence.currentSnapshot, provisionalCandidate: nil), nil, "a truncated sentence cannot recover through backspace")
+        _ = longSentence.append("。")
+        _ = longSentence.append("新句")
+        try expect(LiveTranslationDraft.sourceText(committed: longSentence.currentSnapshot, provisionalCandidate: nil), "新句", "resume preview at the next sentence")
+
         let compactSize = UnifiedPanelLayout.size(
             contentWidths: [42, 156, 38],
             rowHeights: [20, 30, 20]

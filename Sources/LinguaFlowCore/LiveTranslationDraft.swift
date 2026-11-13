@@ -6,15 +6,28 @@ public enum LiveTranslationDraft {
         committed: SentenceSnapshot?,
         provisionalCandidate: String?
     ) -> String? {
-        let candidate = provisionalCandidate?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if let candidate, !candidate.isEmpty {
-            guard let committed, !committed.isFinal else { return candidate }
-            return committed.text + candidate
+        if case .text(let value) = evaluate(committed: committed, provisionalCandidate: provisionalCandidate) {
+            return value
         }
+        return nil
+    }
 
-        return committed?.text
+    public enum State: Equatable, Sendable {
+        case empty
+        case text(String)
+        case overlong
+    }
+
+    public static func evaluate(
+        committed: SentenceSnapshot?,
+        provisionalCandidate: String?
+    ) -> State {
+        let candidate = provisionalCandidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let base = committed?.isFinal == true && !candidate.isEmpty ? nil : committed
+        if base?.isOverlong == true { return .overlong }
+        let text = (base?.text ?? "") + candidate
+        if text.count > 280 { return .overlong }
+        return text.isEmpty ? .empty : .text(text)
     }
 }
 

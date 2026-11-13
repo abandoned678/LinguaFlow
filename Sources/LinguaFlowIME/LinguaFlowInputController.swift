@@ -211,15 +211,27 @@ final class LinguaFlowInputController: IMKInputController {
             provisionalCandidate = nil
         }
 
+        let draft = LiveTranslationDraft.evaluate(
+            committed: sentenceBuffer.currentSnapshot,
+            provisionalCandidate: product == .chinese ? provisionalCandidate : nil
+        )
+        if draft == .overlong {
+            latestTranslation = nil
+            translationRevision &+= 1
+            translationSourceText = nil
+            translationState = .message("当前句超过 280 字")
+            coordinator.cancel()
+            renderPanel(client: client)
+            return
+        }
         let sourceText: String?
-        switch product {
-        case .chinese:
-            sourceText = LiveTranslationDraft.sourceText(
-                committed: sentenceBuffer.currentSnapshot,
-                provisionalCandidate: provisionalCandidate
-            )
-        case .english:
-            sourceText = sentenceBuffer.currentSnapshot?.text
+        if case .text(let text) = draft {
+            sourceText = text
+        } else {
+            sourceText = nil
+        }
+        if draft == .empty, translationSourceText == nil {
+            translationState = .hidden
         }
 
         if sourceText != translationSourceText {
