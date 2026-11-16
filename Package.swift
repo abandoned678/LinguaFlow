@@ -18,6 +18,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "InputCore"),
+        .target(name: "LocalTranslation", dependencies: ["InputCore"]),
         .target(
             name: "RimeBridge",
             publicHeadersPath: "include",
@@ -39,7 +40,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "InputMethod",
-            dependencies: ["InputCore", "RimeInput"],
+            dependencies: ["InputCore", "LocalTranslation", "RimeInput"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
@@ -48,6 +49,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "TranslationSetup",
+            dependencies: ["InputCore", "LocalTranslation"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI"),
@@ -64,7 +66,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "TranslationChecks",
-            dependencies: ["InputCore"],
+            dependencies: ["InputCore", "LocalTranslation"],
             linkerSettings: [
                 .linkedFramework("Translation"),
             ]

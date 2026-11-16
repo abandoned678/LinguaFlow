@@ -1,6 +1,46 @@
 import Foundation
 
 public enum TrackedTextReplacement {
+    public enum Rejection: Equatable, Error {
+        case disabled, composition, selection, movedCaret, overlong, waiting, unverifiedRange
+
+        public var message: String {
+            switch self {
+            case .disabled: "翻译预览已关闭"
+            case .composition: "请先确认当前组词"
+            case .selection: "当前存在选区"
+            case .movedCaret: "光标已离开当前句"
+            case .overlong: "当前句超过长度限制"
+            case .waiting: "正在等待译文"
+            case .unverifiedRange: "无法确认宿主文本范围"
+            }
+        }
+    }
+
+    public static func decision(
+        enabled: Bool,
+        snapshot: SentenceSnapshot?,
+        translation: TranslationResult?,
+        currentRevision: UInt64?,
+        expectedCaret: Int?,
+        selection: NSRange,
+        hasComposition: Bool
+    ) -> Result<NSRange, Rejection> {
+        if !enabled { return .failure(.disabled) }
+        if selection.location != NSNotFound, selection.length > 0 { return .failure(.selection) }
+        if hasComposition { return .failure(.composition) }
+        if selection.location == NSNotFound { return .failure(.unverifiedRange) }
+        if let expectedCaret, expectedCaret != selection.location { return .failure(.movedCaret) }
+        if snapshot?.isOverlong == true { return .failure(.overlong) }
+        guard let snapshot, let expectedCaret else { return .failure(.unverifiedRange) }
+        guard let translation, let currentRevision else { return .failure(.waiting) }
+        guard let range = sentenceRange(
+            snapshot: snapshot, translation: translation, currentRevision: currentRevision,
+            expectedCaret: expectedCaret, selection: selection, hasComposition: false
+        ) else { return .failure(.unverifiedRange) }
+        return .success(range)
+    }
+
     public static func sentenceRange(
         snapshot: SentenceSnapshot?,
         translation: TranslationResult?,

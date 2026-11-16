@@ -2,30 +2,42 @@ import AppKit
 import InputCore
 import RimeInput
 
+private final class PreviewPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 @MainActor
 final class PreviewPanelController {
     enum TranslationState: Equatable {
         case hidden
+        case waiting
         case loading
         case result(String)
         case message(String)
+        case action(String, button: String)
     }
 
     static let shared = PreviewPanelController()
 
     private let panel: NSPanel
     private let previewView: PreviewView
+    private let scrollView = NSScrollView(frame: .zero)
     private var activeOwner: ObjectIdentifier?
 
     private init() {
         previewView = PreviewView(frame: .zero)
-        panel = NSPanel(
+        panel = PreviewPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        panel.contentView = previewView
+        scrollView.drawsBackground = false
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = previewView
+        panel.contentView = scrollView
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -45,7 +57,9 @@ final class PreviewPanelController {
         highlightedIndex: Int,
         translation: TranslationState,
         direction: TranslationDirection,
-        spellingCorrection: EnglishSpellingCorrection?
+        spellingCorrection: EnglishSpellingCorrection?,
+        settings: InputSettings,
+        action: (() -> Void)?
     ) {
         activeOwner = ObjectIdentifier(owner)
         previewView.update(
@@ -55,14 +69,13 @@ final class PreviewPanelController {
             highlightedIndex: highlightedIndex,
             translation: translation,
             direction: direction,
-            spellingCorrection: spellingCorrection
+            spellingCorrection: spellingCorrection,
+            settings: settings,
+            action: action
         )
-
-        let size = previewView.preferredSize
-        if panel.frame.size != size {
-            panel.setContentSize(size)
-        }
     }
+
+    var hasContent: Bool { previewView.hasContent }
 
     func ownsPanel(_ owner: AnyObject) -> Bool {
         activeOwner == ObjectIdentifier(owner)
@@ -78,11 +91,15 @@ final class PreviewPanelController {
         let visibleFrame = NSScreen.screens
             .first(where: { $0.frame.intersects(anchor) })?
             .visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
-        let origin = UnifiedPanelLayout.origin(
-            anchor: anchor,
-            panelSize: previewView.preferredSize,
-            visibleFrame: visibleFrame
-        )
+        let content = previewView.preferredSize
+        let maxHeight = max(1, visibleFrame.height - UnifiedPanelLayout.screenMargin * 2)
+        let size = NSSize(width: content.width, height: min(content.height, maxHeight))
+        scrollView.hasVerticalScroller = content.height > size.height
+        panel.ignoresMouseEvents = !previewView.hasAction && !scrollView.hasVerticalScroller
+        if panel.contentRect(forFrameRect: panel.frame).size != size {
+            panel.setContentSize(size)
+        }
+        let origin = UnifiedPanelLayout.origin(anchor: anchor, panelSize: size, visibleFrame: visibleFrame)
 
         if abs(panel.frame.origin.x - origin.x) > 0.5
             || abs(panel.frame.origin.y - origin.y) > 0.5
@@ -97,8 +114,16 @@ final class PreviewPanelController {
     func hide(owner: AnyObject, relinquishOwnership: Bool = true) {
         guard activeOwner == nil || activeOwner == ObjectIdentifier(owner) else { return }
         panel.orderOut(nil)
-        if relinquishOwnership { activeOwner = nil }
+        if relinquishOwnership {
+            activeOwner = nil
+            previewView.clear()
+            panel.ignoresMouseEvents = true
+        }
     }
+}
+
+private final class PreviewActionButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 @MainActor
@@ -111,14 +136,28 @@ private final class PreviewView: NSView {
     private var translation: PreviewPanelController.TranslationState = .hidden
     private var direction = TranslationDirection.chineseToEnglish
     private var spellingCorrection: EnglishSpellingCorrection?
+    private var action: (() -> Void)?
+    private let actionButton = PreviewActionButton(frame: .zero)
+    private let actionHeight: CGFloat = 24
 
-    private let regularFont = NSFont.systemFont(ofSize: 14)
-    private let labelFont = NSFont.systemFont(ofSize: 11, weight: .medium)
-    private let shortcutFont = NSFont.systemFont(ofSize: 10)
-    private let labelColumnWidth: CGFloat = 26
-    private let candidateHeight: CGFloat = 23
-    private let candidateGap: CGFloat = 4
-    private let candidateInset: CGFloat = 5
+    private var layout = InputSettings.PreviewLayout.standard
+    private var size = InputSettings.PreviewSize.standard
+    private var shortcutKeyCode = SentenceReplacementShortcut.defaultKeyCode
+    private var regularFont = NSFont.systemFont(ofSize: 14)
+    private var labelFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    private var shortcutFont = NSFont.systemFont(ofSize: 10)
+    private var labelColumnWidth: CGFloat { layout == .compact ? 0 : ceil(26 * size.fontScale) }
+    private var lineHeight: CGFloat { ceil(20 * size.fontScale) }
+    private var candidateHeight: CGFloat { ceil(23 * size.fontScale) }
+    private var candidateGap: CGFloat { 4 }
+    private var candidateInset: CGFloat { 5 }
+    private var shortcutHeight: CGFloat { ceil(16 * size.fontScale) }
+    private var reservedTranslationHeight: CGFloat = 0
+
+    var hasAction: Bool { action != nil }
+    var hasContent: Bool {
+        headerContent != nil || !candidates.isEmpty || spellingCorrection != nil || translationText != nil
+    }
 
     private var contentX: CGFloat { UnifiedPanelLayout.horizontalPadding }
     private var valueX: CGFloat { contentX + labelColumnWidth }
@@ -131,6 +170,12 @@ private final class PreviewView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("随键译输入、纠错与翻译预览")
+        actionButton.target = self
+        actionButton.action = #selector(performPreviewAction)
+        actionButton.controlSize = .small
+        actionButton.bezelStyle = .rounded
+        actionButton.isHidden = true
+        addSubview(actionButton)
     }
 
     required init?(coder: NSCoder) {
@@ -144,7 +189,9 @@ private final class PreviewView: NSView {
         highlightedIndex: Int,
         translation: PreviewPanelController.TranslationState,
         direction: TranslationDirection,
-        spellingCorrection: EnglishSpellingCorrection?
+        spellingCorrection: EnglishSpellingCorrection?,
+        settings: InputSettings,
+        action: (() -> Void)?
     ) {
         let changed = self.isComposing != isComposing
             || self.sourceText != sourceText
@@ -153,7 +200,28 @@ private final class PreviewView: NSView {
             || self.translation != translation
             || self.direction != direction
             || self.spellingCorrection != spellingCorrection
+            || layout != settings.previewLayout
+            || size != settings.previewSize
+            || shortcutKeyCode != settings.replacementKeyCode
 
+        let sameSentence: Bool
+        if let sourceText, let previous = self.sourceText {
+            sameSentence = sourceText.hasPrefix(previous) || previous.hasPrefix(sourceText)
+        } else {
+            sameSentence = false
+        }
+        if size != settings.previewSize || layout != settings.previewLayout || translation == .hidden || !sameSentence {
+            reservedTranslationHeight = 0
+        }
+        if size != settings.previewSize {
+            let scale = settings.previewSize.fontScale
+            regularFont = NSFont.systemFont(ofSize: 14 * scale)
+            labelFont = NSFont.systemFont(ofSize: 11 * scale, weight: .medium)
+            shortcutFont = NSFont.systemFont(ofSize: 10 * scale)
+        }
+        size = settings.previewSize
+        layout = settings.previewLayout
+        shortcutKeyCode = settings.replacementKeyCode
         self.isComposing = isComposing
         self.sourceText = sourceText
         self.candidates = candidates
@@ -161,12 +229,32 @@ private final class PreviewView: NSView {
         self.translation = translation
         self.direction = direction
         self.spellingCorrection = spellingCorrection
-        preferredSize = calculateSize()
-        frame.size = preferredSize
+        self.action = action
+        if changed {
+            preferredSize = calculateSize()
+            frame.size = preferredSize
+        }
+        if case .action(_, let title) = translation, action != nil {
+            actionButton.title = title
+            actionButton.sizeToFit()
+            actionButton.frame.origin = NSPoint(x: valueX, y: bounds.height - actionHeight)
+            actionButton.isHidden = false
+        } else {
+            actionButton.isHidden = true
+        }
         if changed {
             needsDisplay = true
             setAccessibilityValue(accessibilityText)
         }
+    }
+
+    func clear() {
+        update(isComposing: false, sourceText: nil, candidates: [], highlightedIndex: 0,
+               translation: .hidden, direction: direction, spellingCorrection: nil, settings: InputSettings(), action: nil)
+    }
+
+    @objc private func performPreviewAction() {
+        action?()
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -184,8 +272,9 @@ private final class PreviewView: NSView {
 
         var y = UnifiedPanelLayout.verticalPadding
         if let header = headerContent {
-            drawLabeledText(label: header.label, value: header.value, y: y)
-            y += 20 + UnifiedPanelLayout.rowSpacing
+            let height = max(lineHeight, textHeight(header.value, width: valueWidth))
+            drawLabeledText(label: header.label, value: header.value, y: y, height: height)
+            y += height + UnifiedPanelLayout.rowSpacing
         }
 
         if !candidates.isEmpty {
@@ -195,10 +284,10 @@ private final class PreviewView: NSView {
 
         if let spellingCorrection {
             drawCorrection(spellingCorrection, y: y)
-            y += 20 + UnifiedPanelLayout.rowSpacing
+            y += lineHeight + UnifiedPanelLayout.rowSpacing
         }
 
-        if translation != .hidden {
+        if translationText != nil {
             if headerContent != nil || !candidates.isEmpty || spellingCorrection != nil {
                 NSColor.separatorColor.withAlphaComponent(0.7).setStroke()
                 let divider = NSBezierPath()
@@ -212,7 +301,7 @@ private final class PreviewView: NSView {
     }
 
     private var headerContent: (label: String, value: String)? {
-        guard !isComposing, let sourceText, !sourceText.isEmpty else { return nil }
+        guard layout == .standard, !isComposing, let sourceText, !sourceText.isEmpty else { return nil }
         return (direction.sourceLabel, sourceText)
     }
 
@@ -220,69 +309,63 @@ private final class PreviewView: NSView {
         switch translation {
         case .hidden:
             nil
+        case .waiting:
+            layout == .compact && isComposing ? nil : "等待翻译"
         case .loading:
-            direction == .chineseToEnglish ? "正在生成英文…" : "正在生成中文…"
-        case .result(let value), .message(let value):
+            layout == .compact && isComposing ? nil : "正在翻译…"
+        case .result(let value), .message(let value), .action(let value, _):
             value
         }
     }
 
+    private var shortcutHint: String { "\(SentenceReplacementShortcut.label(for: shortcutKeyCode)) 替换当前句" }
+
     private func calculateSize() -> NSSize {
         var widths: [CGFloat] = []
-        var rowHeights: [CGFloat] = []
-
-        if let header = headerContent {
-            widths.append(labeledTextWidth(header.value))
-            rowHeights.append(20)
-        }
-        if !candidates.isEmpty {
-            widths.append(candidateRowWidth)
-            rowHeights.append(candidateRowHeight)
-        }
+        if let header = headerContent { widths.append(labeledTextWidth(header.value)) }
+        if !candidates.isEmpty { widths.append(candidateRowWidth) }
         if let spellingCorrection {
-            widths.append(
-                labeledTextWidth(
-                    "\(spellingCorrection.original) → \(spellingCorrection.replacement)   Tab 接受"
-                )
-            )
-            rowHeights.append(20)
+            widths.append(labeledTextWidth("\(spellingCorrection.original) → \(spellingCorrection.replacement)   Tab 接受"))
         }
-        if let translationText {
-            widths.append(labeledTextWidth(translationText))
-            if case .result = translation {
-                widths.append(textWidth("\(SentenceReplacementShortcut.label) 替换当前句", font: shortcutFont) + labelColumnWidth)
-            }
-            let provisionalSize = UnifiedPanelLayout.size(
-                contentWidths: widths,
-                rowHeights: rowHeights + [20]
-            )
-            let availableTextWidth = provisionalSize.width
-                - contentX * 2
-                - labelColumnWidth
-            var height = max(20, textHeight(translationText, width: availableTextWidth))
-            if case .result = translation {
-                height += 16
-            }
-            rowHeights.append(height)
-        }
+        if let translationText { widths.append(labeledTextWidth(translationText)) }
+        if case .result = translation { widths.append(textWidth(shortcutHint, font: shortcutFont) + labelColumnWidth) }
+        if case .action(_, let title) = translation { widths.append(textWidth(title, font: regularFont) + labelColumnWidth + 26) }
 
-        return UnifiedPanelLayout.size(contentWidths: widths, rowHeights: rowHeights)
+        let width = UnifiedPanelLayout.size(contentWidths: widths, rowHeights: []).width
+        let textWidth = width - contentX * 2 - labelColumnWidth
+        var heights: [CGFloat] = []
+        if let header = headerContent { heights.append(max(lineHeight, textHeight(header.value, width: textWidth))) }
+        if !candidates.isEmpty { heights.append(candidateRowHeight) }
+        if spellingCorrection != nil { heights.append(lineHeight) }
+        if let translationText {
+            var height = max(lineHeight, textHeight(translationText, width: textWidth))
+            if case .result = translation { height += shortcutHeight }
+            if case .action = translation { height += actionHeight }
+            if layout == .standard {
+                reservedTranslationHeight = min(max(reservedTranslationHeight, height, lineHeight + shortcutHeight), lineHeight * 3)
+                height = max(height, reservedTranslationHeight)
+            }
+            heights.append(height)
+        }
+        return UnifiedPanelLayout.size(contentWidths: widths, rowHeights: heights)
     }
 
-    private func drawLabeledText(label: String, value: String, y: CGFloat) {
-        drawText(
-            label,
-            in: NSRect(x: contentX, y: y + 2, width: labelColumnWidth - 2, height: 18),
-            color: .secondaryLabelColor,
-            font: labelFont,
-            lineBreakMode: .byClipping
-        )
+    private func drawLabeledText(label: String, value: String, y: CGFloat, height: CGFloat) {
+        if labelColumnWidth > 0 {
+            drawText(
+                label,
+                in: NSRect(x: contentX, y: y + 2, width: labelColumnWidth - 2, height: lineHeight),
+                color: .secondaryLabelColor,
+                font: labelFont,
+                lineBreakMode: .byClipping
+            )
+        }
         drawText(
             value,
-            in: NSRect(x: valueX, y: y, width: valueWidth, height: 20),
+            in: NSRect(x: valueX, y: y, width: valueWidth, height: height),
             color: .labelColor,
             font: regularFont,
-            lineBreakMode: .byTruncatingTail
+            lineBreakMode: .byWordWrapping
         )
     }
 
@@ -318,17 +401,19 @@ private final class PreviewView: NSView {
     private func drawTranslation(y: CGFloat) {
         guard let translationText else { return }
 
-        drawText(
-            direction.targetLabel,
-            in: NSRect(x: contentX, y: y + 2, width: labelColumnWidth - 2, height: 18),
-            color: .secondaryLabelColor,
-            font: labelFont,
-            lineBreakMode: .byClipping
-        )
+        if labelColumnWidth > 0, case .result = translation {
+            drawText(
+                direction.targetLabel,
+                in: NSRect(x: contentX, y: y + 2, width: labelColumnWidth - 2, height: lineHeight),
+                color: .secondaryLabelColor,
+                font: labelFont,
+                lineBreakMode: .byClipping
+            )
+        }
 
         let availableWidth = valueWidth
         let height = textHeight(translationText, width: availableWidth)
-        let color: NSColor = translation == .loading ? .secondaryLabelColor : .labelColor
+        let color: NSColor = translation == .loading || translation == .waiting ? .secondaryLabelColor : .labelColor
         drawText(
             translationText,
             in: NSRect(x: valueX, y: y, width: availableWidth, height: height),
@@ -339,8 +424,8 @@ private final class PreviewView: NSView {
 
         if case .result = translation {
             drawText(
-                "\(SentenceReplacementShortcut.label) 替换当前句",
-                in: NSRect(x: valueX, y: y + height + 2, width: availableWidth, height: 14),
+                shortcutHint,
+                in: NSRect(x: valueX, y: y + height + 2, width: availableWidth, height: shortcutHeight),
                 color: .tertiaryLabelColor,
                 font: shortcutFont,
                 lineBreakMode: .byClipping
@@ -349,16 +434,18 @@ private final class PreviewView: NSView {
     }
 
     private func drawCorrection(_ correction: EnglishSpellingCorrection, y: CGFloat) {
-        drawText(
-            "纠错",
-            in: NSRect(x: contentX, y: y + 2, width: labelColumnWidth - 2, height: 18),
-            color: .systemOrange,
-            font: labelFont,
-            lineBreakMode: .byClipping
-        )
+        if labelColumnWidth > 0 {
+            drawText(
+                "纠错",
+                in: NSRect(x: contentX, y: y + 2, width: labelColumnWidth - 2, height: lineHeight),
+                color: .systemOrange,
+                font: labelFont,
+                lineBreakMode: .byClipping
+            )
+        }
         drawText(
             "\(correction.original) → \(correction.replacement)   Tab 接受",
-            in: NSRect(x: valueX, y: y, width: valueWidth, height: 20),
+            in: NSRect(x: valueX, y: y, width: valueWidth, height: lineHeight),
             color: .labelColor,
             font: regularFont,
             lineBreakMode: .byTruncatingTail

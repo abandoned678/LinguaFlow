@@ -242,10 +242,13 @@ struct InputCoreChecks {
         let provider = ImmediateProvider()
         let coordinator = TranslationCoordinator(provider: provider, debounce: .zero)
         var received: TranslationResult?
-        coordinator.onResult = { received = $0 }
+        coordinator.onStateChange = { state in
+            if case .ready(_, let result) = state { received = result }
+        }
         coordinator.submit(.init(text: "你好", revision: 5, isFinal: false))
 
-        for _ in 0..<100 where received == nil {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while received == nil, ContinuousClock.now < deadline {
             await Task.yield()
         }
 

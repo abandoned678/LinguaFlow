@@ -2,6 +2,8 @@
 @preconcurrency import Carbon
 @preconcurrency import InputMethodKit
 import InputCore
+import LocalTranslation
+import OSLog
 import RimeInput
 
 @objc(InputMethodController)
@@ -15,10 +17,17 @@ final class InputMethodController: IMKInputController {
     private var currentCandidates: [RimeCandidate] = []
     private var currentHighlightedIndex = 0
     private lazy var sentenceBuffer = CommittedSentenceBuffer(maxCharacters: 280, periodEndsSentence: product == .english)
-    private var latestTranslation: TranslationResult?
-    private var translationRevision: UInt64 = 0
-    private var translationSourceText: String?
-    private var translationState: PreviewPanelController.TranslationState = .hidden
+    private var settings = InputSettingsStore.shared.read()
+    private var translationNotice: String?
+    private var noticeTask: Task<Void, Never>?
+    private var lastPresentedTranslation: UUID?
+    private static let timing = OSSignposter(
+        subsystem: "com.abandoned678.inputmethod.SentenceAlong", category: "InputTiming"
+    )
+    private static let logger = Logger(
+        subsystem: "com.abandoned678.inputmethod.SentenceAlong", category: "InputTiming"
+    )
+    private var isUpdatingDraft = false
     private var spellingCorrection: EnglishSpellingCorrection?
     private var spellCheckRevision: UInt64 = 0
     private var spellCheckTask: Task<Void, Never>?
@@ -45,40 +54,30 @@ final class InputMethodController: IMKInputController {
         let sentenceTranslationProvider = OnDeviceTranslationProvider(
             direction: product.translationDirection
         )
-        coordinator = TranslationCoordinator(
-            provider: sentenceTranslationProvider,
-            debounce: .milliseconds(400)
-        )
+        coordinator = TranslationCoordinator(provider: sentenceTranslationProvider)
+        coordinator.speed = settings.speed
+        coordinator.setEnabled(settings.translationEnabled)
         if product == .english {
-            candidateTranslationProvider = OnDeviceTranslationProvider(
-                direction: .englishToChinese
-            )
+            candidateTranslationProvider = OnDeviceTranslationProvider(direction: .englishToChinese)
         }
-        coordinator.onResult = { [weak self] result in
-            guard
-                let self, self.isActive,
-                self.translationRevision == result.revision,
-                self.translationSourceText == result.sourceText
-            else {
-                return
-            }
+        coordinator.onStateChange = { [weak self] state in
+            guard let self, self.isActive, !self.isUpdatingDraft else { return }
+            guard state != .hidden else { return }
             guard !IsSecureEventInputEnabled() else {
                 self.clearDocumentContext()
                 return
             }
-            self.latestTranslation = result
-            self.translationState = .result(result.translatedText)
+            self.reconcileTrackedCaret(client: self.activeClient)
+            guard self.coordinator.state == state else { return }
             self.renderPanel(client: self.activeClient)
         }
-        coordinator.onError = { [weak self] error in
-            guard let self, self.isActive else { return }
-            guard !IsSecureEventInputEnabled() else {
-                self.clearDocumentContext()
-                return
-            }
-            self.translationState = .message(error.localizedDescription)
-            self.renderPanel(client: self.activeClient)
-        }
+        let notifications = DistributedNotificationCenter.default()
+        notifications.addObserver(self, selector: #selector(settingsDidChange(_:)), name: InputSettingsStore.didChange, object: nil)
+        notifications.addObserver(self, selector: #selector(refreshModelStatus(_:)), name: LocalTranslationModels.statusDidChange, object: nil)
+    }
+
+    deinit {
+        DistributedNotificationCenter.default().removeObserver(self)
     }
 
     override func activateServer(_ sender: Any!) {
@@ -87,6 +86,7 @@ final class InputMethodController: IMKInputController {
         }
         activeClient = sender as? any IMKTextInput
         isActive = true
+        reloadSettings()
     }
 
     override func deactivateServer(_ sender: Any!) {
@@ -110,19 +110,107 @@ final class InputMethodController: IMKInputController {
     }
 
     override func menu() -> NSMenu! {
+        reloadSettings()
         let menu = NSMenu(title: "随键译")
-        let setupItem = NSMenuItem(
-            title: "准备本地中英翻译…",
-            action: #selector(openTranslationSetup),
-            keyEquivalent: ""
-        )
-        setupItem.target = self
-        menu.addItem(setupItem)
+        let toggleItem = menu.addItem(withTitle: "启用翻译预览", action: #selector(toggleTranslation), keyEquivalent: "")
+        toggleItem.target = self
+        toggleItem.state = settings.translationEnabled ? .on : .off
+        menu.addItem(withTitle: "输入法设置…", action: #selector(openInputSettings), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "准备本地翻译模型…", action: #selector(openTranslationSetup), keyEquivalent: "").target = self
         return menu
+    }
+
+    @objc private func toggleTranslation() {
+        do {
+            try InputSettingsStore.shared.update { $0.translationEnabled.toggle() }
+            reloadSettings()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "无法保存翻译设置"
+            alert.informativeText = "请检查随键译设置目录是否可以写入。"
+            alert.runModal()
+        }
+    }
+
+    @objc private func settingsDidChange(_ notification: Notification) {
+        reloadSettings()
+    }
+
+    private func reloadSettings() {
+        let updated = InputSettingsStore.shared.read()
+        let changed = updated.translationEnabled != settings.translationEnabled
+        let appearanceChanged = updated.previewSize != settings.previewSize
+            || updated.previewLayout != settings.previewLayout
+            || updated.replacementKeyCode != settings.replacementKeyCode
+        settings = updated
+        coordinator.speed = updated.speed
+        coordinator.setEnabled(updated.translationEnabled)
+        guard isActive, changed || appearanceChanged else { return }
+        guard !IsSecureEventInputEnabled() else {
+            clearDocumentContext()
+            return
+        }
+        guard changed else {
+            renderPanel(client: activeClient)
+            return
+        }
+        clearNotice()
+        if !updated.translationEnabled {
+            candidateMeaningRevision &+= 1
+            candidateMeaningTask?.cancel()
+            candidateMeaningTask = nil
+            candidateMeaningCache.removeAll()
+            if product == .english {
+                currentCandidates = currentCandidates.map { RimeCandidate(text: $0.text, comment: nil) }
+            }
+            renderPanel(client: activeClient)
+            return
+        }
+        guard let activeClient else {
+            clearDocumentContext()
+            return
+        }
+        reconcileTrackedCaret(client: activeClient)
+        discardUnverifiedSentence(onResumeIn: activeClient)
+        updateTranslationDraftAndPanel(client: activeClient)
+        if product == .english, !currentCandidates.isEmpty {
+            scheduleCandidateMeanings(for: currentCandidates.map(\.text))
+        }
+    }
+
+    private func discardUnverifiedSentence(onResumeIn client: any IMKTextInput) {
+        guard currentPreedit.isEmpty, let snapshot = sentenceBuffer.currentSnapshot, !snapshot.isOverlong else { return }
+        let selection = client.selectedRange()
+        guard
+            selection.location == expectedHostCaretLocation,
+            let range = TrackedTextReplacement.hostRange(
+                trackedText: snapshot.text,
+                trackedUTF16Range: NSRange(location: 0, length: snapshot.text.utf16.count),
+                currentSelection: selection
+            ),
+            client.attributedSubstring(from: range)?.string == snapshot.text
+        else {
+            clearTranslationContext()
+            return
+        }
+    }
+
+    @objc private func refreshModelStatus(_ notification: Notification) {
+        guard notification.object as? String == product.translationDirection.rawValue else { return }
+        if isActive {
+            guard !IsSecureEventInputEnabled() else {
+                clearDocumentContext()
+                return
+            }
+            reconcileTrackedCaret(client: activeClient)
+        }
+        coordinator.modelStatusDidChange()
     }
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
         guard isActive, let event, event.type == .keyDown else { return false }
+        let timing = Self.timing.beginInterval("Input event")
+        defer { Self.timing.endInterval("Input event", timing) }
         let client = client(from: sender)
         if let current = activeClient, let client,
            (current as AnyObject) !== (client as AnyObject) {
@@ -142,17 +230,18 @@ final class InputMethodController: IMKInputController {
             return false
         }
 
-        reconcileTrackedCaret(client: client)
-        captureCaretAnchor(client: client)
-
         if SentenceReplacementShortcut.matches(
             keyCode: event.keyCode,
             control: modifiers.contains(.control),
-            shift: modifiers.contains(.shift)
+            shift: modifiers.contains(.shift),
+            configuredKeyCode: settings.replacementKeyCode
         ) {
-            replaceCurrentSentence(client: client)
+            if !event.isARepeat { replaceCurrentSentence(client: client) }
             return true
         }
+
+        clearNotice()
+        reconcileTrackedCaret(client: client)
 
         if isReturn(event), modifiers.contains(.control) {
             clearDocumentContext()
@@ -195,26 +284,61 @@ final class InputMethodController: IMKInputController {
     }
 
     private func replaceCurrentSentence(client: (any IMKTextInput)?) {
-        guard let client,
-              let snapshot = sentenceBuffer.currentSnapshot,
-              let translation = latestTranslation,
-              let range = TrackedTextReplacement.sentenceRange(
-                  snapshot: snapshot,
-                  translation: translation,
-                  currentRevision: translationRevision,
-                  expectedCaret: expectedHostCaretLocation,
-                  selection: client.selectedRange(),
-                  hasComposition: !currentPreedit.isEmpty || hasHostMarkedText(client)
-              ),
-              client.attributedSubstring(from: range)?.string == snapshot.text
-        else {
-            translationState = .message("当前句暂不可替换")
-            renderPanel(client: client)
-            return
-        }
+        guard let client else { return }
+        let awaitedHostReturn = pendingHostLineBreak != nil
+        if awaitedHostReturn { reconcileTrackedCaret(client: client) }
 
-        client.insertText(translation.translatedText, replacementRange: range)
-        clearDocumentContext()
+        let request: TranslationRequest?
+        let translation: TranslationResult?
+        if case .ready(let current, let result) = coordinator.state {
+            request = current
+            translation = result
+        } else {
+            request = nil
+            translation = nil
+        }
+        let snapshot = sentenceBuffer.currentSnapshot
+        let decision = TrackedTextReplacement.decision(
+            enabled: settings.translationEnabled,
+            snapshot: snapshot,
+            translation: translation,
+            currentRevision: request?.revision,
+            expectedCaret: expectedHostCaretLocation,
+            selection: client.selectedRange(),
+            hasComposition: !currentPreedit.isEmpty || hasHostMarkedText(client)
+        )
+        switch decision {
+        case .failure(let reason):
+            if reason == .movedCaret || reason == .selection { clearDocumentContext() }
+            showReplacementNotice(reason, client: client)
+        case .success(let range):
+            guard !awaitedHostReturn, let snapshot, let translation,
+                  client.attributedSubstring(from: range)?.string == snapshot.text else {
+                clearDocumentContext()
+                showReplacementNotice(.unverifiedRange, client: client)
+                return
+            }
+            client.insertText(translation.translatedText, replacementRange: range)
+            clearDocumentContext()
+        }
+    }
+
+    private func showReplacementNotice(_ reason: TrackedTextReplacement.Rejection, client: any IMKTextInput) {
+        clearNotice()
+        translationNotice = reason.message
+        renderPanel(client: client)
+        noticeTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            guard let self, self.isActive, !IsSecureEventInputEnabled() else { return }
+            self.clearNotice()
+            self.renderPanel(client: self.activeClient)
+        }
+    }
+
+    private func clearNotice() {
+        noticeTask?.cancel()
+        noticeTask = nil
+        translationNotice = nil
     }
 
     private func hasHostMarkedText(_ client: any IMKTextInput) -> Bool {
@@ -223,6 +347,14 @@ final class InputMethodController: IMKInputController {
     }
 
     private func apply(_ snapshot: RimeSnapshot, client: (any IMKTextInput)?) {
+        let previousCandidate = Self.highlightedCandidate(currentCandidates, index: currentHighlightedIndex)
+        let nextCandidate = Self.highlightedCandidate(snapshot.candidates, index: snapshot.highlightedIndex)
+        let trigger = TranslationTrigger.compositionUpdate(
+            commit: snapshot.commit,
+            previousPreedit: currentPreedit,
+            preedit: snapshot.preedit,
+            highlightChanged: previousCandidate != nextCandidate || currentHighlightedIndex != snapshot.highlightedIndex
+        )
         if let commit = snapshot.commit, !commit.isEmpty {
             client?.insertText(commit, replacementRange: Self.notFoundRange)
             if !IsSecureEventInputEnabled() {
@@ -242,93 +374,115 @@ final class InputMethodController: IMKInputController {
 
         currentCandidates = snapshot.candidates
         currentHighlightedIndex = snapshot.highlightedIndex
-        updateTranslationDraftAndPanel(client: client)
+        updateTranslationDraftAndPanel(client: client, trigger: trigger)
+    }
+
+    private static func highlightedCandidate(_ candidates: [RimeCandidate], index: Int) -> String? {
+        candidates.indices.contains(index) ? candidates[index].text : nil
     }
 
     private func updateTranslationDraftAndPanel(
         client: (any IMKTextInput)?,
-        refreshEnglishCandidates: Bool = true
+        refreshEnglishCandidates: Bool = true,
+        trigger: TranslationTrigger = .input
     ) {
-        let provisionalCandidate: String?
-        if !currentPreedit.isEmpty, currentCandidates.indices.contains(currentHighlightedIndex) {
-            provisionalCandidate = currentCandidates[currentHighlightedIndex].text
-        } else {
-            provisionalCandidate = nil
-        }
+        let candidate = currentPreedit.isEmpty || product != .chinese
+            ? nil : Self.highlightedCandidate(currentCandidates, index: currentHighlightedIndex)
+        let committed = sentenceBuffer.currentSnapshot
+        let draft = LiveTranslationDraft.evaluate(committed: committed, provisionalCandidate: candidate)
+        clearNotice()
 
-        let draft = LiveTranslationDraft.evaluate(
-            committed: sentenceBuffer.currentSnapshot,
-            provisionalCandidate: product == .chinese ? provisionalCandidate : nil
-        )
-        if draft == .overlong {
-            latestTranslation = nil
-            translationRevision &+= 1
-            translationSourceText = nil
-            translationState = .message("当前句超过 280 字")
+        isUpdatingDraft = true
+        switch draft {
+        case .overlong:
+            if settings.translationEnabled { translationNotice = "当前句超过 280 字" }
             coordinator.cancel()
-            renderPanel(client: client)
-            return
+        case .empty:
+            if coordinator.state != .hidden { coordinator.cancel() }
+        case .text(let text):
+            let isFinal = committed?.isFinal == true && candidate == nil
+            coordinator.submit(
+                SentenceSnapshot(text: text, revision: sentenceBuffer.revision, isFinal: isFinal),
+                trigger: trigger == .committedPunctuation && !isFinal ? .input : trigger
+            )
         }
-        let sourceText: String?
-        if case .text(let text) = draft {
-            sourceText = text
-        } else {
-            sourceText = nil
-        }
-        if draft == .empty, translationSourceText == nil {
-            translationState = .hidden
-        }
-
-        if sourceText != translationSourceText {
-            translationSourceText = sourceText
-            latestTranslation = nil
-
-            if let sourceText {
-                translationRevision &+= 1
-                translationState = .loading
-                coordinator.submit(
-                    SentenceSnapshot(
-                        text: sourceText,
-                        revision: translationRevision,
-                        isFinal: false
-                    )
-                )
-            } else {
-                translationState = .hidden
-                coordinator.cancel()
-            }
-        }
+        isUpdatingDraft = false
 
         if product == .english {
-            if refreshEnglishCandidates {
-                updateEnglishCandidates(for: sourceText)
-            }
-            scheduleSpellingCheck(for: sourceText)
+            let text: String?
+            if case .text(let value) = draft { text = value } else { text = nil }
+            if refreshEnglishCandidates { updateEnglishCandidates(for: text) }
+            scheduleSpellingCheck(for: text)
         }
-
         renderPanel(client: client)
     }
 
     private func renderPanel(client: (any IMKTextInput)?) {
+        let source: String?
+        let translation: PreviewPanelController.TranslationState
+        var action: (() -> Void)?
+        switch coordinator.state {
+        case .hidden:
+            source = nil
+            translation = translationNotice.map { .message($0) } ?? .hidden
+        case .waiting(let request):
+            source = request.sourceText
+            translation = translationNotice.map { .message($0) } ?? .waiting
+        case .translating(let request):
+            source = request.sourceText
+            translation = translationNotice.map { .message($0) } ?? .loading
+        case .ready(let request, let result):
+            source = request.sourceText
+            translation = translationNotice.map { .message($0) } ?? .result(result.translatedText)
+        case .failed(let request, let failure):
+            source = request.sourceText
+            if failure.canRetry {
+                translation = .action(failure.message, button: "重试")
+                action = { [weak self] in self?.retryTranslation(request) }
+            } else if failure == .modelsNotInstalled {
+                translation = .action(failure.message, button: "准备模型")
+                action = { [weak self] in self?.openTranslationSetup() }
+            } else {
+                translation = .message(failure.message)
+            }
+        }
+
         panelController.update(
             owner: self,
             isComposing: !currentPreedit.isEmpty,
-            sourceText: translationSourceText,
+            sourceText: source,
             candidates: currentCandidates,
             highlightedIndex: currentHighlightedIndex,
-            translation: translationState,
+            translation: translation,
             direction: product.translationDirection,
-            spellingCorrection: spellingCorrection
+            spellingCorrection: spellingCorrection,
+            settings: settings,
+            action: action
         )
 
-        if !currentCandidates.isEmpty || translationState != .hidden {
+        if panelController.hasContent {
             captureCaretAnchor(client: client)
             showPanel(client: client)
+            if client != nil, lastValidAnchor != nil, case .result = translation,
+               case .ready(let request, _) = coordinator.state, lastPresentedTranslation != request.id {
+                lastPresentedTranslation = request.id
+                let duration = request.submittedAt.duration(to: .now).components
+                let elapsedMS = duration.seconds * 1_000 + duration.attoseconds / 1_000_000_000_000_000
+                Self.logger.debug("stage=panelSubmitted elapsedMS=\(elapsedMS)")
+            }
             startPositionRefresh()
         } else {
             stopPositionRefresh()
             panelController.hide(owner: self)
         }
+    }
+
+    private func retryTranslation(_ request: TranslationRequest) {
+        guard isActive, settings.translationEnabled, let activeClient, !IsSecureEventInputEnabled() else { return }
+        reconcileTrackedCaret(client: activeClient)
+        guard case .failed(let current, _) = coordinator.state, current.id == request.id else { return }
+        translationNotice = nil
+        coordinator.retry()
     }
 
     private func showPanel(client: (any IMKTextInput)?) {
@@ -432,10 +586,8 @@ final class InputMethodController: IMKInputController {
 
     private func clearTranslationContext() {
         sentenceBuffer.reset()
-        latestTranslation = nil
-        translationRevision &+= 1
-        translationSourceText = nil
-        translationState = .hidden
+        clearNotice()
+        lastPresentedTranslation = nil
         spellingCorrection = nil
         expectedHostCaretLocation = nil
         pendingHostLineBreak = nil
@@ -563,7 +715,7 @@ final class InputMethodController: IMKInputController {
         candidateMeaningTask?.cancel()
 
         let missingWords = words.filter { candidateMeaningCache[$0.lowercased()] == nil }
-        guard !missingWords.isEmpty, let provider = candidateTranslationProvider else {
+        guard settings.translationEnabled, !missingWords.isEmpty, let provider = candidateTranslationProvider else {
             return
         }
 
@@ -573,7 +725,8 @@ final class InputMethodController: IMKInputController {
                 let meanings = try await provider.translateCandidates(missingWords)
                 try Task.checkCancellation()
                 guard
-                    let self,
+                    let self, self.settings.translationEnabled, self.isActive,
+                    !IsSecureEventInputEnabled(),
                     self.candidateMeaningRevision == revision,
                     self.currentCandidates.map(\.text) == words
                 else {
@@ -844,13 +997,25 @@ final class InputMethodController: IMKInputController {
         [115, 116, 119, 121, 123, 124, 125, 126].contains(keyCode)
     }
 
-    @objc
-    private func openTranslationSetup() {
+    @objc private func openInputSettings() {
+        openSetup(section: "general")
+    }
+
+    @objc private func openTranslationSetup() {
+        openSetup(section: "translation")
+    }
+
+    private func openSetup(section: String) {
         let setupURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Helpers", isDirectory: true)
             .appendingPathComponent("SentenceAlongSetup.app", isDirectory: true)
-        NSWorkspace.shared.open(setupURL)
+        guard let route = URL(string: "sentencealong-settings://\(section)") else { return }
+        NSWorkspace.shared.open(
+            [route], withApplicationAt: setupURL,
+            configuration: NSWorkspace.OpenConfiguration(),
+            completionHandler: nil
+        )
     }
 
     private static let notFoundRange = NSRange(location: NSNotFound, length: NSNotFound)

@@ -47,4 +47,4 @@ mv "$staged_bundle" "$destination_bundle"
 
 echo "Installed: $destination_bundle"
 echo "Select 随键译 from the input menu. If missing, check System Settings > Keyboard > Text Input > Edit."
-echo "Before translating, open SentenceAlong's input menu and choose 准备本地中英翻译."
+echo "Before translating, open SentenceAlong's input menu and choose 准备本地翻译模型."
