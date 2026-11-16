@@ -23,8 +23,26 @@ if [[ -e "$destination_bundle" ]]; then
   fi
 fi
 mkdir -p "$destination_dir"
-ditto "$source_bundle" "$destination_bundle"
-codesign --verify --deep --strict "$destination_bundle"
+staging_dir=$(mktemp -d "$destination_dir/.sentencealong-install.XXXXXX")
+staged_bundle="$staging_dir/SentenceAlong.app"
+previous_bundle="$staging_dir/Previous.app"
+cleanup_installation() {
+  if [[ -e "$previous_bundle" && ! -e "$destination_bundle" ]]; then
+    if ! mv "$previous_bundle" "$destination_bundle"; then
+      echo "Could not restore the previous bundle at $previous_bundle" >&2
+      return
+    fi
+  fi
+  /bin/rm -rf "$staging_dir"
+}
+trap cleanup_installation EXIT
+
+ditto "$source_bundle" "$staged_bundle"
+codesign --verify --deep --strict "$staged_bundle"
+if [[ -e "$destination_bundle" ]]; then
+  mv "$destination_bundle" "$previous_bundle"
+fi
+mv "$staged_bundle" "$destination_bundle"
 "$destination_bundle/Contents/MacOS/SentenceAlongIME" --install-input-source
 
 echo "Installed: $destination_bundle"
