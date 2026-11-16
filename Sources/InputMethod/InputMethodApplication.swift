@@ -198,6 +198,21 @@ enum InputMethodApplication {
             return
         }
 
+        if CommandLine.arguments.contains("--disable-input-source") {
+            guard let identifiers = inputSourceIdentifiers(),
+                  hasSupportedInstallationPath(bundleIdentifier: identifiers.bundle) else { exit(1) }
+            if let source = inputSource(
+                bundleIdentifier: identifiers.bundle, sourceIdentifier: identifiers.source, includeAllInstalled: false
+            ), boolProperty(source, key: kTISPropertyInputSourceIsEnabled) {
+                let status = TISDisableInputSource(source)
+                guard status == noErr else {
+                    fputs("TISDisableInputSource failed with status \(status)\n", stderr)
+                    exit(1)
+                }
+            }
+            return
+        }
+
         if CommandLine.arguments.contains("--enable-input-source") {
             guard let identifiers = inputSourceIdentifiers() else {
                 fputs("SentenceAlong input-source identifiers are missing\n", stderr)

@@ -3,47 +3,77 @@
 set -euo pipefail
 
 project_dir=${0:A:h:h}
-$project_dir/scripts/build-app.sh release >/dev/null
-source_bundle="$project_dir/.build/SentenceAlong.app"
-destination_dir="$HOME/Library/Input Methods"
-destination_bundle="$destination_dir/SentenceAlong.app"
+source "$project_dir/scripts/local-bundle-transaction.sh"
 
-pkill -x SentenceAlongIME >/dev/null 2>&1 || true
-pkill -x SentenceAlongSetup >/dev/null 2>&1 || true
+source_bundle="$project_dir/.build/SentenceAlong.app"
+destination_bundle="$HOME/Library/Input Methods/SentenceAlong.app"
+system_bundle="/Library/Input Methods/SentenceAlong.app"
 expected_id=com.abandoned678.inputmethod.SentenceAlong
-if [[ -L "$destination_dir" || -L "$destination_bundle" ]]; then
-  echo "Refusing a symbolic-link installation path" >&2
-  exit 65
-fi
-if [[ -e "$destination_bundle" ]]; then
-  actual_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$destination_bundle/Contents/Info.plist")
-  if [[ "$actual_id" != "$expected_id" ]]; then
-    echo "Refusing to overwrite a different bundle at $destination_bundle" >&2
-    exit 65
+previous_source=
+previously_enabled=0
+
+verify_staged_bundle() {
+  local bundle=$1 minimum
+  codesign --verify --deep --strict "$bundle" || return $?
+  minimum=$(/usr/bin/plutil -extract LSMinimumSystemVersion raw "$bundle/Contents/Info.plist") || return $?
+  autoload -Uz is-at-least
+  if ! is-at-least "$minimum" "$(/usr/bin/sw_vers -productVersion)"; then
+    echo "This build of SentenceAlong requires macOS $minimum." >&2
+    return 65
   fi
-fi
-mkdir -p "$destination_dir"
-staging_dir=$(mktemp -d "$destination_dir/.sentencealong-install.XXXXXX")
-staged_bundle="$staging_dir/SentenceAlong.app"
-previous_bundle="$staging_dir/Previous.app"
-cleanup_installation() {
-  if [[ -e "$previous_bundle" && ! -e "$destination_bundle" ]]; then
-    if ! mv "$previous_bundle" "$destination_bundle"; then
-      echo "Could not restore the previous bundle at $previous_bundle" >&2
-      return
+}
+
+stop_installed_processes() {
+  local bundle=$1 pid uid command_line
+  while read -r pid uid command_line; do
+    if [[ "$uid" == "$EUID" ]] && [[ "$command_line" == "$bundle/Contents/MacOS/SentenceAlongIME" \
+       || "$command_line" == "$bundle/Contents/Helpers/SentenceAlongSetup.app/Contents/MacOS/SentenceAlongSetup" ]]; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  done < <(/bin/ps -ax -o pid= -o uid= -o comm=)
+}
+
+prepare_for_swap() {
+  local bundle=$1 actual_id
+  if [[ -e "$bundle" ]]; then
+    actual_id=$(/usr/bin/plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist") || return $?
+    if [[ "$actual_id" != "$expected_id" ]]; then
+      echo "Refusing to overwrite a different bundle at $bundle" >&2
+      return 65
+    fi
+    previous_source="$bundle/Contents/MacOS/SentenceAlongIME"
+  elif [[ -x "$system_bundle/Contents/MacOS/SentenceAlongIME" ]]; then
+    previous_source="$system_bundle/Contents/MacOS/SentenceAlongIME"
+  fi
+  if [[ -n "$previous_source" ]] && "$previous_source" --verify-input-source >/dev/null 2>&1; then
+    previously_enabled=1
+  fi
+  stop_installed_processes "$bundle"
+}
+
+activate_bundle() {
+  "$1/Contents/MacOS/SentenceAlongIME" --install-input-source || return $?
+  "$project_dir/scripts/check-installed-input-sources.swift" --local
+}
+
+undo_new_activation() {
+  if (( ! previously_enabled )); then
+    "$1/Contents/MacOS/SentenceAlongIME" --disable-input-source
+  fi
+}
+
+restore_registration() {
+  if [[ -n "$previous_source" ]]; then
+    if (( previously_enabled )); then
+      "$previous_source" --install-input-source
+    else
+      "$previous_source" --register-input-source
     fi
   fi
-  /bin/rm -rf "$staging_dir"
 }
-trap cleanup_installation EXIT
 
-ditto "$source_bundle" "$staged_bundle"
-codesign --verify --deep --strict "$staged_bundle"
-if [[ -e "$destination_bundle" ]]; then
-  mv "$destination_bundle" "$previous_bundle"
-fi
-mv "$staged_bundle" "$destination_bundle"
-"$destination_bundle/Contents/MacOS/SentenceAlongIME" --install-input-source
+"$project_dir/scripts/build-app.sh" release >/dev/null
+replace_local_bundle "$source_bundle" "$destination_bundle"
 
 echo "Installed: $destination_bundle"
 echo "Select 随键译 from the input menu. If missing, check System Settings > Keyboard > Text Input > Edit."
