@@ -12,6 +12,12 @@ final class InputMethodController: IMKInputController {
     private let product = InputProduct.current
     private var isActive = false
     private var activeClient: (any IMKTextInput)?
+    private struct HostRanges {
+        let client: ObjectIdentifier
+        var selection: NSRange?
+        var marked: NSRange?
+    }
+    private var eventRanges: HostRanges?
     private var engine: RimeEngine?
     private var currentPreedit = ""
     private var currentCandidates: [RimeCandidate] = []
@@ -191,7 +197,7 @@ final class InputMethodController: IMKInputController {
 
     private func discardUnverifiedSentence(onResumeIn client: any IMKTextInput) {
         guard currentPreedit.isEmpty, let snapshot = sentenceBuffer.currentSnapshot, !snapshot.isOverlong else { return }
-        let selection = client.selectedRange()
+        let selection = readSelection(client)
         guard
             selection.location == expectedHostCaretLocation,
             let range = TrackedTextReplacement.hostRange(
@@ -223,6 +229,8 @@ final class InputMethodController: IMKInputController {
         let timing = Self.timing.beginInterval("Input event")
         defer { Self.timing.endInterval("Input event", timing) }
         let client = client(from: sender)
+        eventRanges = client.map { HostRanges(client: ObjectIdentifier($0 as AnyObject)) }
+        defer { eventRanges = nil }
         if let current = activeClient, let client,
            (current as AnyObject) !== (client as AnyObject) {
             clearDocumentContext()
@@ -318,7 +326,7 @@ final class InputMethodController: IMKInputController {
             translation: translation,
             currentRevision: request?.revision,
             expectedCaret: expectedHostCaretLocation,
-            selection: client.selectedRange(),
+            selection: readSelection(client),
             hasComposition: !currentPreedit.isEmpty || hasHostMarkedText(client)
         )
         switch decision {
@@ -332,7 +340,7 @@ final class InputMethodController: IMKInputController {
                 showReplacementNotice(.unverifiedRange, client: client)
                 return
             }
-            client.insertText(translation.translatedText, replacementRange: range)
+            insert(translation.translatedText, in: range, client: client)
             clearDocumentContext()
         }
     }
@@ -356,7 +364,7 @@ final class InputMethodController: IMKInputController {
     }
 
     private func hasHostMarkedText(_ client: any IMKTextInput) -> Bool {
-        let range = client.markedRange()
+        let range = readMarkedRange(client)
         return range.location != NSNotFound && range.length > 0
     }
 
@@ -370,7 +378,7 @@ final class InputMethodController: IMKInputController {
             highlightChanged: previousCandidate != nextCandidate || currentHighlightedIndex != snapshot.highlightedIndex
         )
         if let commit = snapshot.commit, !commit.isEmpty {
-            client?.insertText(commit, replacementRange: Self.notFoundRange)
+            insert(commit, in: Self.notFoundRange, client: client)
             if !IsSecureEventInputEnabled() {
                 sentenceBuffer.append(commit)
                 recordCurrentCaret(client: client)
@@ -379,11 +387,7 @@ final class InputMethodController: IMKInputController {
 
         if snapshot.preedit != currentPreedit {
             currentPreedit = snapshot.preedit
-            client?.setMarkedText(
-                snapshot.preedit,
-                selectionRange: NSRange(location: snapshot.preedit.utf16.count, length: 0),
-                replacementRange: Self.notFoundRange
-            )
+            setMarkedText(snapshot.preedit, client: client)
         }
 
         currentCandidates = snapshot.candidates
@@ -570,6 +574,8 @@ final class InputMethodController: IMKInputController {
     }
 
     private func refreshPanelPosition() {
+        let interval = Self.timing.beginInterval("Check panel position")
+        defer { Self.timing.endInterval("Check panel position", interval) }
         guard isActive, panelController.ownsPanel(self), let activeClient else {
             stopPositionRefresh()
             return
@@ -578,18 +584,61 @@ final class InputMethodController: IMKInputController {
             clearDocumentContext()
             return
         }
+        eventRanges = HostRanges(client: ObjectIdentifier(activeClient as AnyObject))
+        defer { eventRanges = nil }
         reconcileTrackedCaret(client: activeClient)
         guard panelController.ownsPanel(self) else { return }
         captureCaretAnchor(client: activeClient)
         showPanel(client: activeClient)
     }
 
+    private func readSelection(_ client: any IMKTextInput) -> NSRange {
+        let matches = eventRanges?.client == ObjectIdentifier(client as AnyObject)
+        if matches, let selection = eventRanges?.selection { return selection }
+        let interval = Self.timing.beginInterval("Read selection")
+        defer { Self.timing.endInterval("Read selection", interval) }
+        let selection = client.selectedRange()
+        if matches { eventRanges?.selection = selection }
+        return selection
+    }
+
+    private func readMarkedRange(_ client: any IMKTextInput) -> NSRange {
+        let matches = eventRanges?.client == ObjectIdentifier(client as AnyObject)
+        if matches, let range = eventRanges?.marked { return range }
+        let interval = Self.timing.beginInterval("Read marked range")
+        defer { Self.timing.endInterval("Read marked range", interval) }
+        let range = client.markedRange()
+        if matches { eventRanges?.marked = range }
+        return range
+    }
+
+    private func invalidateHostRanges() {
+        eventRanges?.selection = nil
+        eventRanges?.marked = nil
+    }
+
+    private func insert(_ text: String, in range: NSRange, client: (any IMKTextInput)?) {
+        invalidateHostRanges()
+        client?.insertText(text, replacementRange: range)
+        invalidateHostRanges()
+    }
+
+    private func setMarkedText(_ text: String, client: (any IMKTextInput)?) {
+        invalidateHostRanges()
+        client?.setMarkedText(
+            text,
+            selectionRange: NSRange(location: text.utf16.count, length: 0),
+            replacementRange: Self.notFoundRange
+        )
+        invalidateHostRanges()
+    }
+
     private func captureCaretAnchor(client: (any IMKTextInput)?) {
         lastValidAnchor = nil
         guard let client else { return }
 
-        let markedRange = client.markedRange()
-        let selectedRange = client.selectedRange()
+        let markedRange = readMarkedRange(client)
+        let selectedRange = readSelection(client)
         let preferredRanges = currentPreedit.isEmpty
             ? [selectedRange, markedRange]
             : [markedRange, selectedRange]
@@ -618,11 +667,7 @@ final class InputMethodController: IMKInputController {
     private func clearDocumentContext() {
         stopPositionRefresh()
         if !currentPreedit.isEmpty {
-            activeClient?.setMarkedText(
-                "",
-                selectionRange: NSRange(location: 0, length: 0),
-                replacementRange: Self.notFoundRange
-            )
+            setMarkedText("", client: activeClient)
         }
         engine?.clear()
         candidateRevision &+= 1
@@ -701,7 +746,7 @@ final class InputMethodController: IMKInputController {
         }
 
         if isReturn(event) {
-            let selection = client?.selectedRange()
+            let selection = client.map { readSelection($0) }
             if sentenceBuffer.append("\n") != nil {
                 updateTranslationDraftAndPanel(client: client)
             }
@@ -723,7 +768,7 @@ final class InputMethodController: IMKInputController {
             return false
         }
 
-        let selection = client?.selectedRange()
+        let selection = client.map { readSelection($0) }
         if sentenceBuffer.append(characters) != nil {
             updateTranslationDraftAndPanel(client: client)
         }
@@ -817,7 +862,7 @@ final class InputMethodController: IMKInputController {
             let hostRange = TrackedTextReplacement.hostRange(
                 trackedText: snapshot.text,
                 trackedUTF16Range: context.range,
-                currentSelection: client.selectedRange()
+                currentSelection: readSelection(client)
             ),
             client.attributedSubstring(from: hostRange)?.string == context.word
         else {
@@ -825,7 +870,7 @@ final class InputMethodController: IMKInputController {
         }
 
         let replacement = currentCandidates[index].text
-        client.insertText(replacement, replacementRange: hostRange)
+        insert(replacement, in: hostRange, client: client)
         expectedHostCaretLocation = hostRange.location + replacement.utf16.count
         _ = sentenceBuffer.replaceCharacters(inUTF16Range: context.range, with: replacement)
         spellingCorrection = nil
@@ -872,7 +917,7 @@ final class InputMethodController: IMKInputController {
     }
 
     private func reconcileTrackedCaret(client: (any IMKTextInput)?) {
-        let selection = client?.selectedRange() ?? Self.notFoundRange
+        let selection = client.map { readSelection($0) } ?? Self.notFoundRange
         let action = TrackedCaretReconciliation.action(
             expectedCaretLocation: expectedHostCaretLocation,
             currentSelection: selection,
@@ -891,7 +936,7 @@ final class InputMethodController: IMKInputController {
     }
 
     private func recordCurrentCaret(client: (any IMKTextInput)?) {
-        let selection = client?.selectedRange() ?? Self.notFoundRange
+        let selection = client.map { readSelection($0) } ?? Self.notFoundRange
         guard selection.location != NSNotFound, selection.length == 0 else {
             expectedHostCaretLocation = nil
             return
@@ -900,7 +945,7 @@ final class InputMethodController: IMKInputController {
     }
 
     private func mirrorHostBackspace(client: (any IMKTextInput)?) {
-        let selection = client?.selectedRange() ?? Self.notFoundRange
+        let selection = client.map { readSelection($0) } ?? Self.notFoundRange
         guard
             let lastCharacter = sentenceBuffer.currentSnapshot?.text.last,
             selection.location != NSNotFound,
@@ -972,7 +1017,7 @@ final class InputMethodController: IMKInputController {
             let hostRange = TrackedTextReplacement.hostRange(
                 trackedText: snapshot.text,
                 trackedUTF16Range: suffixRange,
-                currentSelection: client.selectedRange()
+                currentSelection: readSelection(client)
             )
         else {
             return false
@@ -988,7 +1033,7 @@ final class InputMethodController: IMKInputController {
         let trailingText = suffix.dropFirst(original.count)
         let replacement = correction.replacement + trailingText
 
-        client.insertText(replacement, replacementRange: hostRange)
+        insert(replacement, in: hostRange, client: client)
         expectedHostCaretLocation = hostRange.location + replacement.utf16.count
         _ = sentenceBuffer.replaceCharacters(inUTF16Range: suffixRange, with: replacement)
         spellingCorrection = nil

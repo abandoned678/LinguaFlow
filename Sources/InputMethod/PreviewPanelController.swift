@@ -1,5 +1,6 @@
 import AppKit
 import InputCore
+import OSLog
 import RimeInput
 
 private final class PreviewPanel: NSPanel {
@@ -103,7 +104,8 @@ final class PreviewPanelController {
         guard activeOwner == ObjectIdentifier(owner) else { return }
 
         if let clientWindowLevel {
-            panel.level = NSWindow.Level(rawValue: Int(clientWindowLevel) + 1)
+            let level = NSWindow.Level(rawValue: Int(clientWindowLevel) + 1)
+            if panel.level != level { panel.level = level }
         }
 
         let visibleFrame = NSScreen.screens
@@ -112,8 +114,10 @@ final class PreviewPanelController {
         let content = previewView.preferredSize
         let maxHeight = max(1, visibleFrame.height - UnifiedPanelLayout.screenMargin * 2)
         let size = NSSize(width: content.width, height: min(content.height, maxHeight))
-        scrollView.hasVerticalScroller = content.height > size.height
-        panel.ignoresMouseEvents = !previewView.hasAction && !previewView.hasCandidateInteraction && !scrollView.hasVerticalScroller
+        let scrolls = content.height > size.height
+        if scrollView.hasVerticalScroller != scrolls { scrollView.hasVerticalScroller = scrolls }
+        let ignoresMouseEvents = !previewView.hasAction && !previewView.hasCandidateInteraction && !scrolls
+        if panel.ignoresMouseEvents != ignoresMouseEvents { panel.ignoresMouseEvents = ignoresMouseEvents }
         if panel.contentRect(forFrameRect: panel.frame).size != size {
             panel.setContentSize(size)
         }
@@ -146,6 +150,9 @@ private final class PreviewActionButton: NSButton {
 
 @MainActor
 private final class PreviewView: NSView {
+    private static let timing = OSSignposter(
+        subsystem: "com.abandoned678.inputmethod.SentenceAlong", category: "InputTiming"
+    )
     private(set) var preferredSize = NSSize(width: UnifiedPanelLayout.minimumWidth, height: 28)
     private var isComposing = false
     private var sourceText: String?
@@ -216,10 +223,10 @@ private final class PreviewView: NSView {
         candidateInteraction: PreviewPanelController.CandidateInteraction?,
         action: (() -> Void)?
     ) {
-        let changed = self.isComposing != isComposing
+        let highlightChanged = self.highlightedIndex != highlightedIndex
+        let layoutChanged = self.isComposing != isComposing
             || self.sourceText != sourceText
             || self.candidates != candidates
-            || self.highlightedIndex != highlightedIndex
             || self.translation != translation
             || self.direction != direction
             || self.spellingCorrection != spellingCorrection
@@ -260,20 +267,22 @@ private final class PreviewView: NSView {
         if !sameCandidates { pressedCandidate = nil }
         self.candidateInteraction = candidateInteraction
         self.action = action
-        if changed {
+        if layoutChanged {
             candidateBounds.removeAll(keepingCapacity: true)
+            let interval = Self.timing.beginInterval("Measure panel")
             preferredSize = calculateSize()
-            frame.size = preferredSize
+            Self.timing.endInterval("Measure panel", interval)
+            if frame.size != preferredSize { frame.size = preferredSize }
+            if case .action(_, let title) = translation, action != nil {
+                actionButton.title = title
+                actionButton.sizeToFit()
+                actionButton.frame.origin = NSPoint(x: valueX, y: bounds.height - actionHeight)
+                actionButton.isHidden = false
+            } else {
+                actionButton.isHidden = true
+            }
         }
-        if case .action(_, let title) = translation, action != nil {
-            actionButton.title = title
-            actionButton.sizeToFit()
-            actionButton.frame.origin = NSPoint(x: valueX, y: bounds.height - actionHeight)
-            actionButton.isHidden = false
-        } else {
-            actionButton.isHidden = true
-        }
-        if changed {
+        if layoutChanged || highlightChanged {
             needsDisplay = true
             setAccessibilityValue(accessibilityText)
         }
