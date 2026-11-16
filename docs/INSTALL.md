@@ -24,7 +24,7 @@ brew install librime
 ./scripts/build-installer.sh release
 ```
 
-产物写入 `.build/dist/`。
+产物写入 `.build/dist/`。应用的 `Contents/Resources/BuildInfo.plist` 记录版本、构建号、最低系统、源码提交、工作区改动标记、内嵌动态库版本、构建依赖和词库提交。安装包附有 SHA-256 校验文件。
 
 安装后可用以下独立检查确认开发版中文输入源已启用、可选择，并且 LaunchServices 指向系统目录中的副本：
 

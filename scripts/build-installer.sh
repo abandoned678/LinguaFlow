@@ -137,6 +137,20 @@ if [[ "$minimum_system" != "$helper_minimum" ]]; then
   exit 65
 fi
 
+build_info="$payload_input_methods/SentenceAlong.app/Contents/Resources/BuildInfo.plist"
+/usr/bin/plutil -lint "$build_info" >/dev/null
+for field in Version Build MinimumSystem; do
+  case "$field" in
+    Version) expected=$package_version ;;
+    Build) expected=$bundle_version ;;
+    MinimumSystem) expected=$minimum_system ;;
+  esac
+  if [[ "$(/usr/bin/plutil -extract "$field" raw "$build_info")" != "$expected" ]]; then
+    echo "Build manifest disagrees with installer metadata for $field." >&2
+    exit 65
+  fi
+done
+
 for opencc_resource in \
   t2s.json \
   t2hk.json \

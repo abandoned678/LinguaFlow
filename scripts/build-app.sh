@@ -69,6 +69,34 @@ for info_plist in "$app_bundle/Contents/Info.plist" "$helper_bundle/Contents/Inf
   /usr/bin/plutil -replace LSMinimumSystemVersion -string "$minimum_system" "$info_plist"
 done
 
+build_info="$app_bundle/Contents/Resources/BuildInfo.plist"
+app_info="$app_bundle/Contents/Info.plist"
+source_commit=$(git rev-parse --verify HEAD 2>/dev/null || echo unknown)
+source_dirty=true
+if [[ "$source_commit" != unknown ]] && [[ -z "$(git status --porcelain)" ]]; then
+  source_dirty=false
+fi
+embedded_versions=$(
+  for library in "$app_bundle"/Contents/Frameworks/*.dylib; do
+    /usr/bin/otool -L "$library" | /usr/bin/awk -v name="${library:t}" '
+      NR == 2 { sub(/^.*current version /, ""); sub(/\).*$/, ""); print name " " $0 }
+    '
+  done
+)
+formula_versions=$(brew list --versions librime opencc 2>/dev/null || true)
+dictionary_revisions=$(git submodule status 2>/dev/null || true)
+/usr/bin/plutil -create xml1 "$build_info"
+/usr/bin/plutil -insert Version -string "$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$app_info")" "$build_info"
+/usr/bin/plutil -insert Build -string "$(/usr/bin/plutil -extract CFBundleVersion raw "$app_info")" "$build_info"
+/usr/bin/plutil -insert MinimumSystem -string "$minimum_system" "$build_info"
+/usr/bin/plutil -insert Commit -string "$source_commit" "$build_info"
+/usr/bin/plutil -insert WorkingTreeChanges -bool "$source_dirty" "$build_info"
+/usr/bin/plutil -insert Configuration -string "$configuration" "$build_info"
+/usr/bin/plutil -insert BundledLibraries -string "$embedded_versions" "$build_info"
+/usr/bin/plutil -insert BuildFormulas -string "$formula_versions" "$build_info"
+/usr/bin/plutil -insert DictionaryRevisions -string "$dictionary_revisions" "$build_info"
+/usr/bin/plutil -lint "$build_info" >/dev/null
+
 sign_item() {
   local item=$1
   if [[ "$code_sign_identity" == "-" ]]; then
