@@ -48,7 +48,7 @@ final class InputMethodController: IMKInputController {
         super.init(server: server, delegate: delegate, client: inputClient)
         activeClient = inputClient as? any IMKTextInput
         if product.usesRime {
-            engine = try? AppEnvironment.shared.makeEngine()
+            engine = AppEnvironment.shared.makeEngine()
         }
 
         let sentenceTranslationProvider = OnDeviceTranslationProvider(
@@ -117,6 +117,11 @@ final class InputMethodController: IMKInputController {
         toggleItem.state = settings.translationEnabled ? .on : .off
         menu.addItem(withTitle: "输入法设置…", action: #selector(openInputSettings), keyEquivalent: "").target = self
         menu.addItem(withTitle: "准备本地翻译模型…", action: #selector(openTranslationSetup), keyEquivalent: "").target = self
+        if product.usesRime, engine == nil, AppEnvironment.shared.health.state.isFailure {
+            menu.addItem(.separator())
+            let status = AppEnvironment.shared.health.state.label
+            menu.addItem(withTitle: "\(status) · 查看诊断…", action: #selector(openDiagnostics), keyEquivalent: "").target = self
+        }
         return menu
     }
 
@@ -1003,6 +1008,10 @@ final class InputMethodController: IMKInputController {
 
     @objc private func openTranslationSetup() {
         openSetup(section: "translation")
+    }
+
+    @objc private func openDiagnostics() {
+        openSetup(section: "about")
     }
 
     private func openSetup(section: String) {

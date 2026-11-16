@@ -30,6 +30,7 @@ private struct TranslationSetupView: View {
     @State private var page: Page = .translation
     @State private var settings = InputSettingsStore.shared.read()
     @State private var saveFailed = false
+    @State private var engineHealth = EngineHealth.read()
 
     var body: some View {
         TabView(selection: $page) {
@@ -64,6 +65,11 @@ private struct TranslationSetupView: View {
             Form {
                 LabeledContent("版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
                 LabeledContent("构建号", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
+                LabeledContent("拼音引擎（最近报告）", value: engineHealth?.state.label ?? "尚无状态")
+                if engineHealth?.state.isFailure == true {
+                    Text("切换至其他输入法后重新选择随键译。若问题持续，请重新安装并查看构建版本。")
+                        .foregroundStyle(.secondary)
+                }
                 Button("查看开源许可", action: openLicense)
             }
             .formStyle(.grouped)
@@ -72,13 +78,19 @@ private struct TranslationSetupView: View {
         }
         .padding()
         .onOpenURL { url in
-            if url.scheme == "sentencealong-settings", url.host == "translation" { page = .translation }
+            guard url.scheme == "sentencealong-settings" else { return }
+            if url.host == "translation" { page = .translation }
+            if url.host == "about" { page = .about }
         }
         .onReceive(DistributedNotificationCenter.default().publisher(for: InputSettingsStore.didChange)) { _ in
             settings = InputSettingsStore.shared.read()
         }
+        .onReceive(DistributedNotificationCenter.default().publisher(for: EngineHealth.didChange)) { _ in
+            engineHealth = EngineHealth.read()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             settings = InputSettingsStore.shared.read()
+            engineHealth = EngineHealth.read()
         }
         .alert("无法保存输入法设置", isPresented: $saveFailed) {
             Button("好", role: .cancel) {}

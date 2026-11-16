@@ -7,13 +7,7 @@ final class InputMethodApplicationDelegate: NSObject, NSApplicationDelegate {
     private var inputMethodServer: IMKServer?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        if InputProduct.current.usesRime {
-            do {
-                try AppEnvironment.shared.start()
-            } catch {
-                fputs("SentenceAlong startup failed: \(error.localizedDescription)\n", stderr)
-            }
-        }
+        if InputProduct.current.usesRime { AppEnvironment.shared.start() }
 
         let bundle = Bundle.main
         let identifier = bundle.bundleIdentifier ?? "com.abandoned678.inputmethod.SentenceAlong"

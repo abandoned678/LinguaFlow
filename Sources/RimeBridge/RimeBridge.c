@@ -136,9 +136,19 @@ void lf_rime_session_destroy(LFRimeSession *session) {
 }
 
 int lf_rime_session_select_schema(LFRimeSession *session, const char *schema_id) {
-    return session && g_api && schema_id
-        ? g_api->select_schema(session->identifier, schema_id)
-        : 0;
+    if (!session || !g_api || !schema_id) {
+        return 0;
+    }
+    // select_schema can accept the identifier even when its configuration is absent.
+    RimeConfig config = {0};
+    if (!g_api->schema_open(schema_id, &config)) {
+        return 0;
+    }
+    char loaded_schema[256] = {0};
+    int matches = g_api->config_get_string(&config, "schema/schema_id", loaded_schema, sizeof(loaded_schema))
+        && strcmp(loaded_schema, schema_id) == 0;
+    g_api->config_close(&config);
+    return matches ? g_api->select_schema(session->identifier, schema_id) : 0;
 }
 
 int lf_rime_session_process_key(LFRimeSession *session, int keycode, int modifiers) {

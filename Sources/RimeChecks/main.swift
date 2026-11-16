@@ -38,7 +38,15 @@ struct RimeChecks {
             sharedDataDirectory: sharedDataDirectory,
             userDataDirectory: URL(fileURLWithPath: CommandLine.arguments[2])
         )
+        do {
+            _ = try RimeEngine(runtime: runtime, schema: "sentencealong-missing-test-schema")
+            fputs("Rime accepted a nonexistent schema\n", stderr)
+            exit(1)
+        } catch RimeEngineError.schemaUnavailable {
+            // A bad schema is an explicit error and must leave the runtime reusable.
+        }
         let engine = try RimeEngine(runtime: runtime)
+        print("Rime startup: initialization \(runtime.timings.initializationMS) ms, maintenance \(runtime.timings.maintenanceMS) ms")
         let shiftedPunctuation: [(actual: String, unmodified: String, expected: Int32)] = [
             ("?", "/", 0x3f),
             ("~", "`", 0x7e),

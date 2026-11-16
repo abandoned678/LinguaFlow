@@ -1,54 +1,76 @@
-import AppKit
 import Foundation
+import InputCore
+import OSLog
 import RimeInput
 
 @MainActor
 final class AppEnvironment {
     static let shared = AppEnvironment()
 
-    private(set) var runtime: RimeRuntime?
+    private let logger = Logger(subsystem: "com.abandoned678.inputmethod.SentenceAlong", category: "Rime")
+    private var runtime: RimeRuntime?
+    private var didStart = false
+    private(set) var health = EngineHealth(state: .preparing)
 
     private init() {}
 
-    func start() throws {
-        guard runtime == nil else { return }
-        guard let resources = Bundle.main.resourceURL else {
-            throw EnvironmentError.missingBundleResources
+    func start() {
+        guard !didStart else { return }
+        didStart = true
+        publish(.preparing)
+
+        guard let sharedData = Bundle.main.resourceURL?.appendingPathComponent("Rime", isDirectory: true),
+              FileManager.default.isReadableFile(atPath: sharedData.appendingPathComponent("luna_pinyin_simp.schema.yaml").path) else {
+            publish(.missingResources)
+            return
         }
 
-        let sharedData = resources.appendingPathComponent("Rime", isDirectory: true)
-        let appSupport = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let userData = appSupport
-            .appendingPathComponent("SentenceAlong", isDirectory: true)
-            .appendingPathComponent("Rime", isDirectory: true)
-
-        runtime = try RimeRuntime(
-            sharedDataDirectory: sharedData,
-            userDataDirectory: userData
-        )
-    }
-
-    func makeEngine() throws -> RimeEngine {
-        guard let runtime else {
-            throw EnvironmentError.rimeNotStarted
+        do {
+            let appSupport = try FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+            )
+            let userData = appSupport
+                .appendingPathComponent("SentenceAlong", isDirectory: true)
+                .appendingPathComponent("Rime", isDirectory: true)
+            runtime = try RimeRuntime(sharedDataDirectory: sharedData, userDataDirectory: userData)
+            publish(.available)
+        } catch {
+            publish(.startupFailed)
         }
-        return try RimeEngine(runtime: runtime)
     }
-}
 
-enum EnvironmentError: LocalizedError {
-    case missingBundleResources
-    case rimeNotStarted
+    func makeEngine() -> RimeEngine? {
+        guard let runtime else { return nil }
+        let start = ContinuousClock.now
+        do {
+            let engine = try RimeEngine(runtime: runtime)
+            let duration = start.duration(to: .now).components
+            let elapsed = Double(duration.seconds) * 1_000 + Double(duration.attoseconds) / 1e15
+            logger.debug("stage=sessionCreation elapsedMS=\(elapsed)")
+            if health.state != .available || health.sessionMS == nil { publish(.available, sessionMS: elapsed) }
+            return engine
+        } catch RimeEngineError.schemaUnavailable {
+            if health.state != .schemaUnavailable { publish(.schemaUnavailable) }
+            return nil
+        } catch {
+            if health.state != .sessionFailed { publish(.sessionFailed) }
+            return nil
+        }
+    }
 
-    var errorDescription: String? {
-        switch self {
-        case .missingBundleResources: "随键译找不到输入法资源。"
-        case .rimeNotStarted: "随键译的拼音引擎尚未启动。"
+    private func publish(_ state: EngineHealth.State, sessionMS: Double? = nil) {
+        health = EngineHealth(
+            state: state, initializationMS: runtime?.timings.initializationMS,
+            maintenanceMS: runtime?.timings.maintenanceMS, sessionMS: sessionMS
+        )
+        logger.info("state=\(state.rawValue, privacy: .public)")
+        if let runtime {
+            logger.debug("stage=initialization elapsedMS=\(runtime.timings.initializationMS) maintenanceMS=\(runtime.timings.maintenanceMS)")
+        }
+        do {
+            try health.write()
+        } catch {
+            logger.error("Unable to save engine diagnostics")
         }
     }
 }
