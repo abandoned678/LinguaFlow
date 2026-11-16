@@ -94,6 +94,48 @@ struct RimeChecks {
             exit(1)
         }
 
+        engine.clear()
+        for scalar in "ni".unicodeScalars {
+            latest = engine.process(keyCode: Int32(scalar.value))
+        }
+        let pageOne = latest
+        let pageTwo = engine.process(keyCode: RimeKey.pageDown)
+        guard pageTwo.consumed, pageTwo.preedit == pageOne.preedit,
+              pageTwo.commit == nil, pageTwo.candidates != pageOne.candidates,
+              pageTwo.candidates.indices.contains(pageTwo.highlightedIndex) else {
+            fputs("Rime failed to advance a page without committing\n", stderr)
+            exit(1)
+        }
+        let previous = engine.process(keyCode: RimeKey.pageUp)
+        guard previous.candidates == pageOne.candidates, previous.highlightedIndex == pageOne.highlightedIndex,
+              previous.commit == nil, previous.candidates.count >= 2 else {
+            fputs("Rime failed to restore candidate order and highlighting\n", stderr)
+            exit(1)
+        }
+        let picked = engine.selectCandidate(at: 1)
+        guard picked.consumed, picked.commit == previous.candidates[1].text,
+              engine.process(keyCode: RimeKey.escape).commit == nil else {
+            fputs("Rime failed to commit exactly one selected candidate\n", stderr)
+            exit(1)
+        }
+
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SENTENCEALONG_RIME_BENCHMARK"] == "1" {
+            var samples = [Double]()
+            for _ in 0..<300 {
+                engine.clear()
+                for scalar in "nihao".unicodeScalars {
+                    let start = ContinuousClock.now
+                    _ = engine.process(keyCode: Int32(scalar.value))
+                    let elapsed = start.duration(to: .now).components
+                    samples.append(Double(elapsed.seconds) * 1e6 + Double(elapsed.attoseconds) / 1e12)
+                }
+            }
+            let ordered = samples.sorted()
+            print("Rime key snapshots: \(samples.count) samples, P50 \(ordered[749]) µs, P95 \(ordered[1424]) µs")
+        }
+        #endif
+
         print("Rime checks passed: nihao -> \(text), ceshi -> 测试")
     }
 }
