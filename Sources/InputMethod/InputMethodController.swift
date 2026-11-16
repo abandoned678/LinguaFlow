@@ -16,6 +16,10 @@ final class InputMethodController: IMKInputController {
     private var currentPreedit = ""
     private var currentCandidates: [RimeCandidate] = []
     private var currentHighlightedIndex = 0
+    private var candidateRevision: UInt64 = 0
+    private var canPageBackward = false
+    private var canPageForward = false
+    private var activeApplicationPID: pid_t?
     private lazy var sentenceBuffer = CommittedSentenceBuffer(maxCharacters: 280, periodEndsSentence: product == .english)
     private var settings = InputSettingsStore.shared.read()
     private var translationNotice: String?
@@ -85,6 +89,7 @@ final class InputMethodController: IMKInputController {
             clearDocumentContext()
         }
         activeClient = sender as? any IMKTextInput
+        activeApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         isActive = true
         reloadSettings()
     }
@@ -93,6 +98,7 @@ final class InputMethodController: IMKInputController {
         isActive = false
         clearDocumentContext()
         activeClient = nil
+        activeApplicationPID = nil
     }
 
     override func commitComposition(_ sender: Any!) {
@@ -268,6 +274,9 @@ final class InputMethodController: IMKInputController {
         }
 
         guard let engine else { return false }
+        if activeApplicationPID == nil {
+            activeApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        }
         guard let key = rimeKeyMapping(for: event, modifiers: modifiers) else { return false }
         let snapshot = engine.process(keyCode: key.keyCode, modifiers: key.modifiers)
         apply(snapshot, client: client)
@@ -379,6 +388,9 @@ final class InputMethodController: IMKInputController {
 
         currentCandidates = snapshot.candidates
         currentHighlightedIndex = snapshot.highlightedIndex
+        candidateRevision &+= 1
+        canPageBackward = snapshot.canPageBackward
+        canPageForward = snapshot.canPageForward
         updateTranslationDraftAndPanel(client: client, trigger: trigger)
     }
 
@@ -462,6 +474,7 @@ final class InputMethodController: IMKInputController {
             direction: product.translationDirection,
             spellingCorrection: spellingCorrection,
             settings: settings,
+            candidateInteraction: mouseCandidateInteraction(),
             action: action
         )
 
@@ -480,6 +493,39 @@ final class InputMethodController: IMKInputController {
             stopPositionRefresh()
             panelController.hide(owner: self)
         }
+    }
+
+    private func mouseCandidateInteraction() -> PreviewPanelController.CandidateInteraction? {
+        guard product.usesRime, !currentPreedit.isEmpty, !currentCandidates.isEmpty else { return nil }
+        let revision = candidateRevision
+        return .init(owner: ObjectIdentifier(self), revision: revision, canPageBackward: canPageBackward,
+                     canPageForward: canPageForward) { [weak self] target in
+            self?.handleMouseCandidate(target, revision: revision)
+        }
+    }
+
+    private func handleMouseCandidate(_ target: PreviewPanelController.CandidateTarget, revision: UInt64) {
+        guard isActive, panelController.ownsPanel(self), revision == candidateRevision,
+              let activeApplicationPID,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == activeApplicationPID,
+              !IsSecureEventInputEnabled(), let activeClient, let engine, !currentPreedit.isEmpty
+        else { return }
+        reconcileTrackedCaret(client: activeClient)
+        guard revision == candidateRevision else { return }
+
+        let snapshot: RimeSnapshot
+        switch target {
+        case .candidate(let index):
+            guard currentCandidates.indices.contains(index) else { return }
+            snapshot = engine.selectCandidate(at: index)
+        case .previousPage:
+            guard canPageBackward else { return }
+            snapshot = engine.changePage(backward: true)
+        case .nextPage:
+            guard canPageForward else { return }
+            snapshot = engine.changePage(backward: false)
+        }
+        apply(snapshot, client: activeClient)
     }
 
     private func retryTranslation(_ request: TranslationRequest) {
@@ -579,6 +625,9 @@ final class InputMethodController: IMKInputController {
             )
         }
         engine?.clear()
+        candidateRevision &+= 1
+        canPageBackward = false
+        canPageForward = false
         currentPreedit = ""
         currentCandidates = []
         currentHighlightedIndex = 0

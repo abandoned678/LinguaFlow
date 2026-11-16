@@ -18,6 +18,22 @@ final class PreviewPanelController {
         case action(String, button: String)
     }
 
+    enum CandidateTarget: Equatable {
+        case candidate(Int), previousPage, nextPage
+    }
+
+    struct CandidateInteraction {
+        let owner: ObjectIdentifier
+        let revision: UInt64
+        let canPageBackward: Bool
+        let canPageForward: Bool
+        let perform: (CandidateTarget) -> Void
+
+        func matches(_ other: Self) -> Bool {
+            owner == other.owner && revision == other.revision
+        }
+    }
+
     static let shared = PreviewPanelController()
 
     private let panel: NSPanel
@@ -59,6 +75,7 @@ final class PreviewPanelController {
         direction: TranslationDirection,
         spellingCorrection: EnglishSpellingCorrection?,
         settings: InputSettings,
+        candidateInteraction: CandidateInteraction?,
         action: (() -> Void)?
     ) {
         activeOwner = ObjectIdentifier(owner)
@@ -71,6 +88,7 @@ final class PreviewPanelController {
             direction: direction,
             spellingCorrection: spellingCorrection,
             settings: settings,
+            candidateInteraction: candidateInteraction,
             action: action
         )
     }
@@ -95,7 +113,7 @@ final class PreviewPanelController {
         let maxHeight = max(1, visibleFrame.height - UnifiedPanelLayout.screenMargin * 2)
         let size = NSSize(width: content.width, height: min(content.height, maxHeight))
         scrollView.hasVerticalScroller = content.height > size.height
-        panel.ignoresMouseEvents = !previewView.hasAction && !scrollView.hasVerticalScroller
+        panel.ignoresMouseEvents = !previewView.hasAction && !previewView.hasCandidateInteraction && !scrollView.hasVerticalScroller
         if panel.contentRect(forFrameRect: panel.frame).size != size {
             panel.setContentSize(size)
         }
@@ -137,6 +155,9 @@ private final class PreviewView: NSView {
     private var direction = TranslationDirection.chineseToEnglish
     private var spellingCorrection: EnglishSpellingCorrection?
     private var action: (() -> Void)?
+    private var candidateInteraction: PreviewPanelController.CandidateInteraction?
+    private var pressedCandidate: PreviewPanelController.CandidateTarget?
+    private var candidateBounds: [(PreviewPanelController.CandidateTarget, NSRect)] = []
     private let actionButton = PreviewActionButton(frame: .zero)
     private let actionHeight: CGFloat = 24
 
@@ -155,6 +176,7 @@ private final class PreviewView: NSView {
     private var reservedTranslationHeight: CGFloat = 0
 
     var hasAction: Bool { action != nil }
+    var hasCandidateInteraction: Bool { candidateInteraction != nil && !candidates.isEmpty }
     var hasContent: Bool {
         headerContent != nil || !candidates.isEmpty || spellingCorrection != nil || translationText != nil
     }
@@ -191,6 +213,7 @@ private final class PreviewView: NSView {
         direction: TranslationDirection,
         spellingCorrection: EnglishSpellingCorrection?,
         settings: InputSettings,
+        candidateInteraction: PreviewPanelController.CandidateInteraction?,
         action: (() -> Void)?
     ) {
         let changed = self.isComposing != isComposing
@@ -203,6 +226,8 @@ private final class PreviewView: NSView {
             || layout != settings.previewLayout
             || size != settings.previewSize
             || shortcutKeyCode != settings.replacementKeyCode
+            || self.candidateInteraction?.canPageBackward != candidateInteraction?.canPageBackward
+            || self.candidateInteraction?.canPageForward != candidateInteraction?.canPageForward
 
         let sameSentence: Bool
         if let sourceText, let previous = self.sourceText {
@@ -229,8 +254,14 @@ private final class PreviewView: NSView {
         self.translation = translation
         self.direction = direction
         self.spellingCorrection = spellingCorrection
+        let sameCandidates = candidateInteraction.map { interaction in
+            self.candidateInteraction?.matches(interaction) == true
+        } ?? false
+        if !sameCandidates { pressedCandidate = nil }
+        self.candidateInteraction = candidateInteraction
         self.action = action
         if changed {
+            candidateBounds.removeAll(keepingCapacity: true)
             preferredSize = calculateSize()
             frame.size = preferredSize
         }
@@ -250,11 +281,31 @@ private final class PreviewView: NSView {
 
     func clear() {
         update(isComposing: false, sourceText: nil, candidates: [], highlightedIndex: 0,
-               translation: .hidden, direction: direction, spellingCorrection: nil, settings: InputSettings(), action: nil)
+               translation: .hidden, direction: direction, spellingCorrection: nil,
+               settings: InputSettings(), candidateInteraction: nil, action: nil)
     }
 
     @objc private func performPreviewAction() {
         action?()
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard hasCandidateInteraction else { return }
+        pressedCandidate = candidateTarget(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { pressedCandidate = nil }
+        guard let pressedCandidate, let candidateInteraction,
+              candidateTarget(at: convert(event.locationInWindow, from: nil)) == pressedCandidate
+        else { return }
+        candidateInteraction.perform(pressedCandidate)
+    }
+
+    private func candidateTarget(at point: NSPoint) -> PreviewPanelController.CandidateTarget? {
+        candidateBounds.first(where: { $0.1.contains(point) })?.0
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -277,6 +328,7 @@ private final class PreviewView: NSView {
             y += height + UnifiedPanelLayout.rowSpacing
         }
 
+        candidateBounds.removeAll(keepingCapacity: true)
         if !candidates.isEmpty {
             drawCandidates(y: y)
             y += candidateRowHeight + UnifiedPanelLayout.rowSpacing
@@ -369,32 +421,74 @@ private final class PreviewView: NSView {
         )
     }
 
-    private func drawCandidates(y: CGFloat) {
-        var x = UnifiedPanelLayout.horizontalPadding
+    private struct CandidateItem {
+        let target: PreviewPanelController.CandidateTarget
+        let title: String
+        let width: CGFloat
+        let active: Bool
+        let highlighted: Bool
+    }
+
+    private var candidateItems: [CandidateItem] {
+        var items = candidates.enumerated().map { index, candidate in
+            CandidateItem(
+                target: .candidate(index),
+                title: candidateTitle(at: index, candidate: candidate),
+                width: candidateWidth(at: index, candidate: candidate),
+                active: hasCandidateInteraction,
+                highlighted: index == highlightedIndex
+            )
+        }
+        if let interaction = candidateInteraction, interaction.canPageBackward || interaction.canPageForward {
+            let width = ceil(24 * size.fontScale)
+            items += [
+                CandidateItem(target: .previousPage, title: "‹", width: width, active: interaction.canPageBackward, highlighted: false),
+                CandidateItem(target: .nextPage, title: "›", width: width, active: interaction.canPageForward, highlighted: false),
+            ]
+        }
+        return items
+    }
+
+    private func candidateFrames(items: [CandidateItem], width: CGFloat, y: CGFloat) -> [(CandidateItem, NSRect)] {
+        var x = contentX
         var rowY = y
-        let maximumX = bounds.width - UnifiedPanelLayout.horizontalPadding
-        for (index, candidate) in candidates.enumerated() {
-            let title = candidateTitle(at: index, candidate: candidate)
-            let naturalWidth = candidateWidth(at: index, candidate: candidate)
-            let width = min(naturalWidth, maximumCandidateContentWidth)
-            if x > UnifiedPanelLayout.horizontalPadding, x + width > maximumX {
-                x = UnifiedPanelLayout.horizontalPadding
+        let maximumX = contentX + width
+        return items.map { item in
+            let itemWidth = min(item.width, width)
+            if x > contentX, x + itemWidth > maximumX {
+                x = contentX
                 rowY += candidateHeight + UnifiedPanelLayout.rowSpacing
             }
-            let rect = NSRect(x: x, y: rowY, width: width, height: candidateHeight)
+            defer { x += itemWidth + candidateGap }
+            return (item, NSRect(x: x, y: rowY, width: itemWidth, height: candidateHeight))
+        }
+    }
 
-            if index == highlightedIndex {
-                NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
+    private func drawCandidates(y: CGFloat) {
+        let items = candidateFrames(items: candidateItems, width: bounds.width - contentX * 2, y: y)
+        for (item, rect) in items {
+            let isNavigation: Bool
+            switch item.target {
+            case .candidate: isNavigation = false
+            case .previousPage, .nextPage: isNavigation = true
+            }
+            if item.active { candidateBounds.append((item.target, rect)) }
+            if item.highlighted || isNavigation {
+                let fill = item.highlighted
+                    ? NSColor.controlAccentColor.withAlphaComponent(0.16)
+                    : NSColor.labelColor.withAlphaComponent(0.08)
+                fill.setFill()
                 NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
             }
+            let color: NSColor = item.highlighted
+                ? .controlAccentColor : (isNavigation && !item.active ? .tertiaryLabelColor : .labelColor)
             drawText(
-                title,
+                item.title,
                 in: rect.insetBy(dx: candidateInset, dy: 2),
-                color: index == highlightedIndex ? .controlAccentColor : .labelColor,
+                color: color,
                 font: regularFont,
                 lineBreakMode: .byTruncatingTail
             )
-            x += width + candidateGap
         }
     }
 
@@ -453,35 +547,13 @@ private final class PreviewView: NSView {
     }
 
     private var candidateRowWidth: CGFloat {
-        let widths = candidates.enumerated().map { index, candidate in
-            candidateWidth(at: index, candidate: candidate)
-        }
+        let widths = candidateItems.map(\.width)
         return widths.reduce(0, +) + CGFloat(max(0, widths.count - 1)) * candidateGap
     }
 
     private var candidateRowHeight: CGFloat {
-        var rows = 1
-        var occupiedWidth: CGFloat = 0
-
-        for (index, candidate) in candidates.enumerated() {
-            let width = min(
-                candidateWidth(at: index, candidate: candidate),
-                maximumCandidateContentWidth
-            )
-            let requiredWidth = occupiedWidth == 0 ? width : occupiedWidth + candidateGap + width
-            if occupiedWidth > 0, requiredWidth > maximumCandidateContentWidth {
-                rows += 1
-                occupiedWidth = width
-            } else {
-                occupiedWidth = requiredWidth
-            }
-        }
-
-        return CGFloat(rows) * candidateHeight + CGFloat(max(0, rows - 1)) * UnifiedPanelLayout.rowSpacing
-    }
-
-    private var maximumCandidateContentWidth: CGFloat {
-        UnifiedPanelLayout.maximumWidth - UnifiedPanelLayout.horizontalPadding * 2
+        candidateFrames(items: candidateItems, width: UnifiedPanelLayout.maximumWidth - contentX * 2, y: 0)
+            .last?.1.maxY ?? 0
     }
 
     private func candidateWidth(at index: Int, candidate: RimeCandidate) -> CGFloat {
