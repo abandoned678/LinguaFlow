@@ -45,6 +45,30 @@ cp "$binary_dir/TranslationSetup" "$helper_bundle/Contents/MacOS/SentenceAlongSe
 
 "$project_dir/scripts/embed-rime-runtime.sh" "$app_bundle" >/dev/null
 
+# The source targets can compile for macOS 26. The assembled artifact must
+# also satisfy the load commands in the actual bundled dependencies.
+autoload -Uz is-at-least
+minimum_system=
+for binary in "$app_bundle/Contents/MacOS/SentenceAlongIME" \
+              "$helper_bundle/Contents/MacOS/SentenceAlongSetup" \
+              "$app_bundle"/Contents/Frameworks/*.dylib; do
+  binary_minimum=$(/usr/bin/otool -l "$binary" | /usr/bin/awk '
+    $1 == "cmd" { command = $2 }
+    command == "LC_BUILD_VERSION" && $1 == "minos" { if (!found++) print $2 }
+    command == "LC_VERSION_MIN_MACOSX" && $1 == "version" { if (!found++) print $2 }
+  ')
+  if [[ -z "$binary_minimum" ]]; then
+    echo "Cannot determine macOS minimum for $binary" >&2
+    exit 65
+  fi
+  if [[ -z "$minimum_system" ]] || is-at-least "$minimum_system" "$binary_minimum"; then
+    minimum_system=$binary_minimum
+  fi
+done
+for info_plist in "$app_bundle/Contents/Info.plist" "$helper_bundle/Contents/Info.plist"; do
+  /usr/bin/plutil -replace LSMinimumSystemVersion -string "$minimum_system" "$info_plist"
+done
+
 sign_item() {
   local item=$1
   if [[ "$code_sign_identity" == "-" ]]; then

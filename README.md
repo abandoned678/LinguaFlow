@@ -13,7 +13,7 @@
 
 ## 从源码构建和安装
 
-需要 Apple 芯片 Mac、Swift 工具链、Homebrew、librime 和 OpenCC。Swift Package 声明最低 macOS 26。本机使用的 Homebrew librime 要求 macOS 27，macOS 26 兼容性待验证。
+需要 Apple 芯片 Mac、Swift 工具链、Homebrew、librime 和 OpenCC。Swift Package 的源码目标为 macOS 26。安装包最低版本根据实打包的依赖生成，本机链接的 Homebrew librime 要求 macOS 27.0。
 
 ```bash
 git submodule update --init --recursive

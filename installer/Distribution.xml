@@ -5,7 +5,7 @@
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
   <options customize="never" require-scripts="false" hostArchitectures="@ARCHITECTURE@"/>
   <allowed-os-versions>
-    <os-version min="26.0"/>
+    <os-version min="@MINIMUM_SYSTEM@"/>
   </allowed-os-versions>
   <welcome file="Welcome.html" mime-type="text/html"/>
   <readme file="ReadMe.html" mime-type="text/html"/>

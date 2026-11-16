@@ -79,7 +79,7 @@ verify_self_contained_bundle() {
 
   codesign --verify --deep --strict "$app_bundle"
 
-  mach_o_files=("$executable")
+  mach_o_files=("$executable" "$app_bundle/Contents/Helpers/SentenceAlongSetup.app/Contents/MacOS/SentenceAlongSetup")
   while IFS= read -r mach_o; do
     mach_o_files+=("$mach_o")
   done < <(/usr/bin/find "$app_bundle/Contents/Frameworks" \
@@ -128,6 +128,14 @@ verify_self_contained_bundle() {
 }
 
 verify_self_contained_bundle "$payload_input_methods/SentenceAlong.app"
+minimum_system=$(/usr/bin/plutil -extract LSMinimumSystemVersion raw \
+  "$payload_input_methods/SentenceAlong.app/Contents/Info.plist")
+helper_minimum=$(/usr/bin/plutil -extract LSMinimumSystemVersion raw \
+  "$payload_input_methods/SentenceAlong.app/Contents/Helpers/SentenceAlongSetup.app/Contents/Info.plist")
+if [[ "$minimum_system" != "$helper_minimum" ]]; then
+  echo "The input method and settings helper declare different macOS minimums." >&2
+  exit 65
+fi
 
 for opencc_resource in \
   t2s.json \
@@ -194,6 +202,7 @@ distribution_file="$work_dir/Distribution.xml"
 /usr/bin/sed \
   -e "s/@ARCHITECTURE@/$architecture/g" \
   -e "s/@PACKAGE_VERSION@/$full_version/g" \
+  -e "s/@MINIMUM_SYSTEM@/$minimum_system/g" \
   "$distribution_template" > "$distribution_file"
 
 product_resources="$work_dir/Resources"
@@ -220,6 +229,12 @@ pkgutil --expand "$staged_package" "$work_dir/expanded" >/dev/null
 test -f "$work_dir/expanded/Distribution"
 test -f "$work_dir/expanded/input-methods.pkg/Payload"
 test -f "$work_dir/expanded/input-methods.pkg/Scripts/postinstall"
+package_minimum=$(/usr/bin/xmllint --xpath 'string(/installer-gui-script/allowed-os-versions/os-version/@min)' \
+  "$work_dir/expanded/Distribution")
+if [[ "$package_minimum" != "$minimum_system" ]]; then
+  echo "Installer minimum macOS version disagrees with the app bundle." >&2
+  exit 65
+fi
 
 package_info="$work_dir/expanded/input-methods.pkg/PackageInfo"
 package_relocatable=$(/usr/bin/xmllint \
