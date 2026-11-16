@@ -24,7 +24,12 @@ public enum LocalTranslationModels {
     public static func verify(_ direction: TranslationDirection) async throws {
         let sample = direction == .chineseToEnglish ? "你好，很高兴认识你。" : "Hello, nice to meet you."
         let provider = OnDeviceTranslationProvider(direction: direction)
-        _ = try await provider.translate(.init(sourceText: sample, revision: 0))
+        let request = TranslationRequest(sourceText: sample, revision: 0)
+        try await withTaskCancellationHandler {
+            _ = try await provider.translate(request)
+        } onCancel: {
+            Task { await provider.cancel(request) }
+        }
     }
 
     public static func classify(_ error: Error) -> Error {

@@ -63,14 +63,7 @@ private struct TranslationSetupView: View {
             .tag(Page.appearance)
 
             Form {
-                LabeledContent("版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
-                LabeledContent("构建号", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
-                LabeledContent("拼音引擎（最近报告）", value: engineHealth?.state.label ?? "尚无状态")
-                if engineHealth?.state.isFailure == true {
-                    Text("切换至其他输入法后重新选择随键译。若问题持续，请重新安装并查看构建版本。")
-                        .foregroundStyle(.secondary)
-                }
-                Button("查看开源许可", action: openLicense)
+                DiagnosticsSettings(resources: appResources, engineHealth: engineHealth)
             }
             .formStyle(.grouped)
             .tabItem { Label("关于与诊断", systemImage: "info.circle") }
@@ -112,12 +105,9 @@ private struct TranslationSetupView: View {
         }
     }
 
-    private func openLicense() {
-        let resources = Bundle.main.bundleURL
-            .deletingLastPathComponent().deletingLastPathComponent()
+    private var appResources: URL {
+        Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Resources", isDirectory: true)
-        NSWorkspace.shared.open(resources.appendingPathComponent("LICENSE.txt"))
-        NSWorkspace.shared.open(resources.appendingPathComponent("THIRD_PARTY_NOTICES.md"))
     }
 }
 
