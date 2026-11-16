@@ -5,7 +5,9 @@ set -euo pipefail
 source "${0:A:h}/local-bundle-transaction.sh"
 root=$(mktemp -d "${TMPDIR:-/tmp}/sentencealong-install-check.XXXXXX")
 trap '/bin/rm -rf "$root"' EXIT
-mkdir -p "$root/source/SentenceAlong.app" "$root/target"
+mkdir -p "$root/source/SentenceAlong.app" "$root/target" "$root/user-data/Rime"
+print disabled > "$root/user-data/preferences"
+print learned > "$root/user-data/Rime/learning"
 source_bundle="$root/source/SentenceAlong.app"
 destination="$root/target/SentenceAlong.app"
 print new > "$source_bundle/marker"
@@ -43,11 +45,18 @@ fi
 failure=none
 replace_local_bundle "$source_bundle" "$destination"
 [[ "$(cat "$destination/marker")" == new ]]
+
+print upgraded > "$source_bundle/marker"
+replace_local_bundle "$source_bundle" "$destination"
+[[ "$(cat "$destination/marker")" == upgraded ]]
+[[ "$(cat "$root/user-data/preferences")" == disabled ]]
+[[ "$(cat "$root/user-data/Rime/learning")" == learned ]]
+
 failure=restoration
 if replace_local_bundle "$source_bundle" "$destination"; then
   echo "Unexpected success after restoration was prevented" >&2
   exit 1
 fi
 backups=("$root/target"/.sentencealong-install.*/Previous.app/marker(N))
-[[ ${#backups} -eq 1 && "$(cat "$backups[1]")" == new ]]
+[[ ${#backups} -eq 1 && "$(cat "$backups[1]")" == upgraded ]]
 echo "Local installation transaction checks passed"
