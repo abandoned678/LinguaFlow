@@ -10,10 +10,30 @@ extern "C" {
 
 typedef struct LFRimeSession LFRimeSession;
 
+typedef struct {
+    double initialization_ms;
+    double maintenance_ms;
+} LFRimeStartup;
+
+typedef struct {
+    char *text;
+    char *comment;
+} LFRimeCandidate;
+
+typedef struct {
+    char *preedit;
+    LFRimeCandidate *candidates;
+    int count;
+    int highlighted_index;
+    int page_number;
+    int is_last_page;
+} LFRimeSnapshot;
+
 int lf_rime_initialize(
     const char *shared_data_dir,
     const char *user_data_dir,
-    const char *log_dir
+    const char *log_dir,
+    LFRimeStartup *timings
 );
 void lf_rime_finalize(void);
 const char *lf_rime_last_error(void);
@@ -26,12 +46,10 @@ int lf_rime_session_commit_composition(LFRimeSession *session);
 void lf_rime_session_clear(LFRimeSession *session);
 
 char *lf_rime_session_take_commit(LFRimeSession *session);
-char *lf_rime_session_copy_preedit(LFRimeSession *session);
-int lf_rime_session_candidate_count(LFRimeSession *session);
-int lf_rime_session_highlighted_candidate_index(LFRimeSession *session);
-char *lf_rime_session_copy_candidate(LFRimeSession *session, int index);
-char *lf_rime_session_copy_candidate_comment(LFRimeSession *session, int index);
+int lf_rime_session_copy_snapshot(LFRimeSession *session, LFRimeSnapshot *snapshot);
+void lf_rime_snapshot_free(LFRimeSnapshot *snapshot);
 int lf_rime_session_select_candidate(LFRimeSession *session, int index);
+int lf_rime_session_change_page(LFRimeSession *session, int backward);
 
 void lf_rime_string_free(char *value);
 

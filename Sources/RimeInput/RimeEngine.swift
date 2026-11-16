@@ -31,36 +31,53 @@ public struct RimeSnapshot: Equatable, Sendable {
     public let candidates: [RimeCandidate]
     public let highlightedIndex: Int
     public let commit: String?
+    public let pageNumber: Int
+    public let isLastPage: Bool
+
+    public var canPageBackward: Bool { !candidates.isEmpty && pageNumber > 0 }
+    public var canPageForward: Bool { !candidates.isEmpty && !isLastPage }
 
     public init(
         consumed: Bool,
         preedit: String,
         candidates: [RimeCandidate],
         highlightedIndex: Int,
-        commit: String?
+        commit: String?,
+        pageNumber: Int = 0,
+        isLastPage: Bool = true
     ) {
         self.consumed = consumed
         self.preedit = preedit
         self.candidates = candidates
         self.highlightedIndex = highlightedIndex
         self.commit = commit
+        self.pageNumber = pageNumber
+        self.isLastPage = isLastPage
     }
 }
 
 public enum RimeEngineError: Error, LocalizedError {
     case initializationFailed(String)
     case sessionCreationFailed(String)
+    case schemaUnavailable
 
     public var errorDescription: String? {
         switch self {
         case .initializationFailed(let message), .sessionCreationFailed(let message): message
+        case .schemaUnavailable: "随键译无法加载拼音输入方案。"
         }
     }
 }
 
 @MainActor
 public final class RimeRuntime {
+    public struct StartupTimings {
+        public let initializationMS: Double
+        public let maintenanceMS: Double
+    }
+
     private static var initialized = false
+    public private(set) var timings = StartupTimings(initializationMS: 0, maintenanceMS: 0)
 
     public init(sharedDataDirectory: URL, userDataDirectory: URL, logDirectory: URL? = nil) throws {
         guard !Self.initialized else { return }
@@ -69,20 +86,22 @@ public final class RimeRuntime {
             withIntermediateDirectories: true
         )
 
+        var bridgeTimings = LFRimeStartup()
         let success = sharedDataDirectory.path.withCString { sharedPath in
             userDataDirectory.path.withCString { userPath in
                 if let logDirectory {
                     return logDirectory.path.withCString { logPath in
-                        lf_rime_initialize(sharedPath, userPath, logPath)
+                        lf_rime_initialize(sharedPath, userPath, logPath, &bridgeTimings)
                     }
                 }
-                return lf_rime_initialize(sharedPath, userPath, nil)
+                return lf_rime_initialize(sharedPath, userPath, nil, &bridgeTimings)
             }
         }
 
         guard success != 0 else {
             throw RimeEngineError.initializationFailed(Self.lastError)
         }
+        timings = StartupTimings(initializationMS: bridgeTimings.initialization_ms, maintenanceMS: bridgeTimings.maintenance_ms)
         Self.initialized = true
     }
 
@@ -100,8 +119,11 @@ public final class RimeEngine {
         guard let session = lf_rime_session_create() else {
             throw RimeEngineError.sessionCreationFailed(RimeRuntime.lastError)
         }
+        guard schema.withCString({ lf_rime_session_select_schema(session, $0) }) != 0 else {
+            lf_rime_session_destroy(session)
+            throw RimeEngineError.schemaUnavailable
+        }
         self.session = session
-        _ = schema.withCString { lf_rime_session_select_schema(session, $0) }
     }
 
     deinit {
@@ -119,11 +141,16 @@ public final class RimeEngine {
     }
 
     public func selectCandidate(at index: Int) -> RimeSnapshot {
-        guard let session else {
+        guard let session, let index = Int32(exactly: index) else {
             return .init(consumed: false, preedit: "", candidates: [], highlightedIndex: 0, commit: nil)
         }
-        let consumed = lf_rime_session_select_candidate(session, Int32(index)) != 0
+        let consumed = lf_rime_session_select_candidate(session, index) != 0
         return snapshot(consumed: consumed)
+    }
+
+    public func changePage(backward: Bool) -> RimeSnapshot {
+        guard let session else { return snapshot(consumed: false) }
+        return snapshot(consumed: lf_rime_session_change_page(session, backward ? 1 : 0) != 0)
     }
 
     public func clear() {
@@ -144,24 +171,32 @@ public final class RimeEngine {
             return .init(consumed: consumed, preedit: "", candidates: [], highlightedIndex: 0, commit: nil)
         }
 
-        let preedit = takeString(lf_rime_session_copy_preedit(session)) ?? ""
         let commit = takeString(lf_rime_session_take_commit(session))
-        let count = max(0, Int(lf_rime_session_candidate_count(session)))
-        let highlightedIndex = max(0, Int(lf_rime_session_highlighted_candidate_index(session)))
-        let candidates = (0..<count).compactMap { index -> RimeCandidate? in
-            guard let text = takeString(lf_rime_session_copy_candidate(session, Int32(index))) else {
-                return nil
-            }
-            let comment = takeString(lf_rime_session_copy_candidate_comment(session, Int32(index)))
-            return RimeCandidate(text: text, comment: comment)
+        var context = LFRimeSnapshot()
+        guard lf_rime_session_copy_snapshot(session, &context) != 0 else {
+            return .init(consumed: consumed, preedit: "", candidates: [], highlightedIndex: 0, commit: commit)
         }
-
+        defer { lf_rime_snapshot_free(&context) }
+        var candidates: [RimeCandidate] = []
+        if let input = context.candidates {
+            candidates.reserveCapacity(Int(context.count))
+            for index in 0..<Int(context.count) {
+                let candidate = input[index]
+                guard let text = candidate.text else { continue }
+                candidates.append(RimeCandidate(
+                    text: String(cString: text),
+                    comment: candidate.comment.map { String(cString: $0) }
+                ))
+            }
+        }
         return RimeSnapshot(
             consumed: consumed,
-            preedit: preedit,
+            preedit: context.preedit.map { String(cString: $0) } ?? "",
             candidates: candidates,
-            highlightedIndex: highlightedIndex,
-            commit: commit
+            highlightedIndex: max(0, Int(context.highlighted_index)),
+            commit: commit,
+            pageNumber: max(0, Int(context.page_number)),
+            isLastPage: context.is_last_page != 0
         )
     }
 

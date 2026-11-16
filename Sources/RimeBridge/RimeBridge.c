@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 struct LFRimeSession {
     RimeSessionId identifier;
@@ -31,11 +32,21 @@ static char *copy_string(const char *value) {
     return copy;
 }
 
+static double monotonic_ms(void) {
+    struct timespec now = {0};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (double)now.tv_sec * 1000 + now.tv_nsec / 1000000.0;
+}
+
 int lf_rime_initialize(
     const char *shared_data_dir,
     const char *user_data_dir,
-    const char *log_dir
+    const char *log_dir,
+    LFRimeStartup *timings
 ) {
+    if (timings) {
+        *timings = (LFRimeStartup){0};
+    }
     if (g_initialized) {
         return 1;
     }
@@ -61,10 +72,16 @@ int lf_rime_initialize(
     traits.min_log_level = 2;
     traits.log_dir = log_dir ? log_dir : "";
 
+    double started = monotonic_ms();
     g_api->setup(&traits);
     g_api->initialize(&traits);
+    double initialized = monotonic_ms();
     if (g_api->start_maintenance(True)) {
         g_api->join_maintenance_thread();
+    }
+    if (timings) {
+        timings->initialization_ms = initialized - started;
+        timings->maintenance_ms = monotonic_ms() - initialized;
     }
 
     g_initialized = 1;
@@ -157,37 +174,24 @@ char *lf_rime_session_take_commit(LFRimeSession *session) {
     return text;
 }
 
-char *lf_rime_session_copy_preedit(LFRimeSession *session) {
-    if (!session || !g_api) {
-        return NULL;
+void lf_rime_snapshot_free(LFRimeSnapshot *snapshot) {
+    if (!snapshot) {
+        return;
     }
-
-    RimeContext context = {0};
-    RIME_STRUCT_INIT(RimeContext, context);
-    if (!g_api->get_context(session->identifier, &context)) {
-        return NULL;
+    free(snapshot->preedit);
+    for (int index = 0; index < snapshot->count; ++index) {
+        free(snapshot->candidates[index].text);
+        free(snapshot->candidates[index].comment);
     }
-    char *text = copy_string(context.composition.preedit);
-    g_api->free_context(&context);
-    return text;
+    free(snapshot->candidates);
+    *snapshot = (LFRimeSnapshot){0};
 }
 
-int lf_rime_session_candidate_count(LFRimeSession *session) {
-    if (!session || !g_api) {
+int lf_rime_session_copy_snapshot(LFRimeSession *session, LFRimeSnapshot *snapshot) {
+    if (!snapshot) {
         return 0;
     }
-
-    RimeContext context = {0};
-    RIME_STRUCT_INIT(RimeContext, context);
-    if (!g_api->get_context(session->identifier, &context)) {
-        return 0;
-    }
-    int count = context.menu.num_candidates;
-    g_api->free_context(&context);
-    return count;
-}
-
-int lf_rime_session_highlighted_candidate_index(LFRimeSession *session) {
+    *snapshot = (LFRimeSnapshot){0};
     if (!session || !g_api) {
         return 0;
     }
@@ -197,43 +201,60 @@ int lf_rime_session_highlighted_candidate_index(LFRimeSession *session) {
     if (!g_api->get_context(session->identifier, &context)) {
         return 0;
     }
-    int index = context.menu.highlighted_candidate_index;
+
+    int success = 0;
+    const char *preedit = context.composition.preedit;
+    snapshot->preedit = copy_string(preedit);
+    if (preedit && preedit[0] && !snapshot->preedit) {
+        goto end;
+    }
+
+    const int count = context.menu.num_candidates;
+    if (count > 0) {
+        snapshot->candidates = calloc((size_t)count, sizeof(LFRimeCandidate));
+        if (!snapshot->candidates) {
+            set_error("Unable to allocate Rime candidates");
+            goto end;
+        }
+        snapshot->count = count;
+        for (int index = 0; index < count; ++index) {
+            const RimeCandidate *candidate = &context.menu.candidates[index];
+            LFRimeCandidate *copy = &snapshot->candidates[index];
+            copy->text = copy_string(candidate->text);
+            copy->comment = copy_string(candidate->comment);
+            if ((candidate->text && candidate->text[0] && !copy->text)
+                || (candidate->comment && candidate->comment[0] && !copy->comment)) {
+                goto end;
+            }
+        }
+    }
+    snapshot->highlighted_index = context.menu.highlighted_candidate_index;
+    snapshot->page_number = context.menu.page_no;
+    snapshot->is_last_page = context.menu.is_last_page;
+    success = 1;
+
+end:
     g_api->free_context(&context);
-    return index;
-}
-
-static char *copy_candidate_field(LFRimeSession *session, int index, int copy_comment) {
-    if (!session || !g_api || index < 0) {
-        return NULL;
+    if (!success) {
+        lf_rime_snapshot_free(snapshot);
     }
-
-    RimeContext context = {0};
-    RIME_STRUCT_INIT(RimeContext, context);
-    if (!g_api->get_context(session->identifier, &context)) {
-        return NULL;
-    }
-
-    char *value = NULL;
-    if (index < context.menu.num_candidates) {
-        RimeCandidate *candidate = &context.menu.candidates[index];
-        value = copy_string(copy_comment ? candidate->comment : candidate->text);
-    }
-    g_api->free_context(&context);
-    return value;
-}
-
-char *lf_rime_session_copy_candidate(LFRimeSession *session, int index) {
-    return copy_candidate_field(session, index, 0);
-}
-
-char *lf_rime_session_copy_candidate_comment(LFRimeSession *session, int index) {
-    return copy_candidate_field(session, index, 1);
+    return success;
 }
 
 int lf_rime_session_select_candidate(LFRimeSession *session, int index) {
     return session && g_api && index >= 0
         ? g_api->select_candidate_on_current_page(session->identifier, (size_t)index)
         : 0;
+}
+
+int lf_rime_session_change_page(LFRimeSession *session, int backward) {
+    if (!session || !g_api) {
+        return 0;
+    }
+    if (RIME_API_AVAILABLE(g_api, change_page)) {
+        return g_api->change_page(session->identifier, backward != 0);
+    }
+    return g_api->process_key(session->identifier, backward ? LF_RIME_KEY_PAGE_UP : LF_RIME_KEY_PAGE_DOWN, 0);
 }
 
 void lf_rime_string_free(char *value) {

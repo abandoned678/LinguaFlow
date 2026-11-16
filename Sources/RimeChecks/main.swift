@@ -100,7 +100,8 @@ struct RimeChecks {
         }
         let pageOne = latest
         let pageTwo = engine.process(keyCode: RimeKey.pageDown)
-        guard pageTwo.consumed, pageTwo.preedit == pageOne.preedit,
+        guard pageOne.pageNumber == 0, !pageOne.canPageBackward, pageOne.canPageForward,
+              pageTwo.pageNumber == 1, pageTwo.canPageBackward, pageTwo.consumed, pageTwo.preedit == pageOne.preedit,
               pageTwo.commit == nil, pageTwo.candidates != pageOne.candidates,
               pageTwo.candidates.indices.contains(pageTwo.highlightedIndex) else {
             fputs("Rime failed to advance a page without committing\n", stderr)
@@ -110,6 +111,13 @@ struct RimeChecks {
         guard previous.candidates == pageOne.candidates, previous.highlightedIndex == pageOne.highlightedIndex,
               previous.commit == nil, previous.candidates.count >= 2 else {
             fputs("Rime failed to restore candidate order and highlighting\n", stderr)
+            exit(1)
+        }
+        let advanced = engine.changePage(backward: false)
+        let returned = engine.changePage(backward: true)
+        guard advanced.candidates == pageTwo.candidates, advanced.commit == nil,
+              returned.candidates == pageOne.candidates, returned.commit == nil else {
+            fputs("Rime's direct page API changed the candidate selection or committed text\n", stderr)
             exit(1)
         }
         let picked = engine.selectCandidate(at: 1)
