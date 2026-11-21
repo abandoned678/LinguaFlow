@@ -94,6 +94,15 @@ final class PreviewPanelController {
         )
     }
 
+    #if DEBUG && IME_TEST_BUILD
+    func highlightedPoint() -> CGPoint? {
+        guard panel.isVisible, let screenTop = NSScreen.screens.first?.frame.maxY else { return nil }
+        panel.displayIfNeeded()
+        guard let center = previewView.highlightedCenter else { return nil }
+        let point = panel.convertPoint(toScreen: previewView.convert(center, to: nil))
+        return CGPoint(x: point.x, y: screenTop - point.y)
+    }
+    #endif
     var hasContent: Bool { previewView.hasContent }
 
     func ownsPanel(_ owner: AnyObject) -> Bool {
@@ -312,6 +321,13 @@ private final class PreviewView: NSView {
         else { return }
         candidateInteraction.perform(pressedCandidate)
     }
+
+    #if DEBUG && IME_TEST_BUILD
+    var highlightedCenter: CGPoint? {
+        guard let rect = candidateBounds.first(where: { $0.0 == .candidate(highlightedIndex) })?.1 else { return nil }
+        return CGPoint(x: rect.midX, y: rect.midY)
+    }
+    #endif
 
     private func candidateTarget(at point: NSPoint) -> PreviewPanelController.CandidateTarget? {
         candidateBounds.first(where: { $0.1.contains(point) })?.0

@@ -6,6 +6,12 @@ project_dir=${0:A:h:h}
 configuration=${1:-release}
 code_sign_identity=${CODE_SIGN_IDENTITY:--}
 app_bundle="$project_dir/.build/SentenceAlong.app"
+build_args=(-c "$configuration")
+if [[ ${SENTENCEALONG_TEST_BUILD:-0} == 1 ]]; then
+  [[ "$configuration" == debug ]] || exit 64
+  app_bundle="$project_dir/.build/ime-testing/SentenceAlongDebug.app"
+  build_args+=(--scratch-path "$project_dir/.build/ime-testing/swift")
+fi
 helper_bundle="$app_bundle/Contents/Helpers/SentenceAlongSetup.app"
 
 cd "$project_dir"
@@ -15,9 +21,9 @@ if ! brew list --versions librime >/dev/null 2>&1; then
   exit 1
 fi
 
-swift build -c "$configuration" --product InputMethod
-swift build -c "$configuration" --product TranslationSetup
-binary_dir=$(swift build -c "$configuration" --show-bin-path)
+swift build "${build_args[@]}" --product InputMethod
+swift build "${build_args[@]}" --product TranslationSetup
+binary_dir=$(swift build "${build_args[@]}" --show-bin-path)
 
 /bin/rm -rf "$app_bundle"
 mkdir -p "$app_bundle/Contents/MacOS"
@@ -41,6 +47,23 @@ cp "$project_dir/Vendor/rime-essay/LICENSE" \
   "$app_bundle/Contents/Resources/ThirdPartyLicenses/RimeEssay-LICENSE.txt"
 
 cp "$project_dir/Resources/TranslationSetup.plist" "$helper_bundle/Contents/Info.plist"
+if [[ ${SENTENCEALONG_TEST_BUILD:-0} == 1 ]]; then
+  test_id=com.abandoned678.inputmethod.SentenceAlongDebug
+  for key in CFBundleIdentifier TISInputSourceID; do
+    plutil -replace "$key" -string "$test_id" "$app_bundle/Contents/Info.plist"
+  done
+  plutil -replace InputMethodConnectionName -string "${test_id}_Connection" "$app_bundle/Contents/Info.plist"
+  # TIS uses CFBundleName for this single-mode input source in the keyboard picker.
+  for key in CFBundleName CFBundleDisplayName; do
+    plutil -replace "$key" -string "随键译 Debug" "$app_bundle/Contents/Info.plist"
+  done
+  plutil -insert IMETestBuild -string "$(uuidgen)" "$app_bundle/Contents/Info.plist"
+  plutil -replace CFBundleIdentifier -string "$test_id.Setup" "$helper_bundle/Contents/Info.plist"
+  plutil -replace CFBundleURLTypes.0.CFBundleURLSchemes.0 -string sentencealong-debug-settings "$helper_bundle/Contents/Info.plist"
+  # Make rankings repeatable regardless of previous test runs.
+  print -r -- 'patch:
+  translator/enable_user_dict: false' > "$app_bundle/Contents/Resources/Rime/luna_pinyin_simp.custom.yaml"
+fi
 cp "$binary_dir/TranslationSetup" "$helper_bundle/Contents/MacOS/SentenceAlongSetup"
 
 "$project_dir/scripts/embed-rime-runtime.sh" "$app_bundle" >/dev/null

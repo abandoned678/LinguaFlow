@@ -51,11 +51,18 @@ public struct InputSettings: Equatable, Sendable {
 }
 
 public struct InputSettingsStore: Sendable {
-    public static let domain = "com.abandoned678.inputmethod.SentenceAlong.preferences"
+    public static let productDirectory = productDirectory(for: Bundle.main.bundleIdentifier)
+    static func productDirectory(for bundleID: String?) -> String {
+        let debugID = "com.abandoned678.inputmethod.SentenceAlongDebug"
+        return [debugID, debugID + ".Setup"].contains(bundleID ?? "")
+            ? "SentenceAlongDebug" : "SentenceAlong"
+    }
+    public static let domain = "com.abandoned678.inputmethod." + productDirectory + ".preferences"
+    public static var settingsScheme: String { productDirectory == "SentenceAlongDebug" ? "sentencealong-debug-settings" : "sentencealong-settings" }
     public static let didChange = Notification.Name(domain + ".didChange")
     public static let shared = InputSettingsStore(
         directory: FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/SentenceAlong", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/" + productDirectory, isDirectory: true)
     )
 
     private static let version = 1

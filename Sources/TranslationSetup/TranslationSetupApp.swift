@@ -71,7 +71,7 @@ private struct TranslationSetupView: View {
         }
         .padding()
         .onOpenURL { url in
-            guard url.scheme == "sentencealong-settings" else { return }
+            guard url.scheme == InputSettingsStore.settingsScheme else { return }
             if url.host == "translation" { page = .translation }
             if url.host == "about" { page = .about }
         }

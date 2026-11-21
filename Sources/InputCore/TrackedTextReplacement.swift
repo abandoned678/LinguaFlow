@@ -63,6 +63,13 @@ public enum TrackedTextReplacement {
         )
     }
 
+    public static func applyIfVerified(_ range: NSRange, expected: String,
+                                       read: (NSRange) -> String?, replace: (NSRange) -> Void) -> Bool {
+        guard read(range) == expected else { return false }
+        replace(range)
+        return true
+    }
+
     public static func hostRange(
         trackedText: String,
         trackedUTF16Range: NSRange,

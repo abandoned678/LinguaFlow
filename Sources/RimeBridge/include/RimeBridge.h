@@ -22,6 +22,7 @@ typedef struct {
 
 typedef struct {
     char *preedit;
+    int cursor_byte_offset;
     LFRimeCandidate *candidates;
     int count;
     int highlighted_index;

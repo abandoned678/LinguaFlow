@@ -27,6 +27,7 @@ public struct RimeCandidate: Equatable, Sendable {
 
 public struct RimeSnapshot: Equatable, Sendable {
     public let consumed: Bool
+    public let caretUTF16: Int
     public let preedit: String
     public let candidates: [RimeCandidate]
     public let highlightedIndex: Int
@@ -40,6 +41,7 @@ public struct RimeSnapshot: Equatable, Sendable {
     public init(
         consumed: Bool,
         preedit: String,
+        cursorByteOffset: Int? = nil,
         candidates: [RimeCandidate],
         highlightedIndex: Int,
         commit: String?,
@@ -48,6 +50,13 @@ public struct RimeSnapshot: Equatable, Sendable {
     ) {
         self.consumed = consumed
         self.preedit = preedit
+        if let offset = cursorByteOffset, offset >= 0,
+           let index = preedit.utf8.index(preedit.utf8.startIndex, offsetBy: offset, limitedBy: preedit.utf8.endIndex),
+           let position = index.samePosition(in: preedit.utf16) {
+            caretUTF16 = preedit.utf16.distance(from: preedit.utf16.startIndex, to: position)
+        } else {
+            caretUTF16 = preedit.utf16.count
+        }
         self.candidates = candidates
         self.highlightedIndex = highlightedIndex
         self.commit = commit
@@ -192,6 +201,7 @@ public final class RimeEngine {
         return RimeSnapshot(
             consumed: consumed,
             preedit: context.preedit.map { String(cString: $0) } ?? "",
+            cursorByteOffset: Int(context.cursor_byte_offset),
             candidates: candidates,
             highlightedIndex: max(0, Int(context.highlighted_index)),
             commit: commit,

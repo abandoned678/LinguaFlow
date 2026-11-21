@@ -214,6 +214,7 @@ int lf_rime_session_copy_snapshot(LFRimeSession *session, LFRimeSnapshot *snapsh
 
     int success = 0;
     const char *preedit = context.composition.preedit;
+    snapshot->cursor_byte_offset = context.composition.cursor_pos;
     snapshot->preedit = copy_string(preedit);
     if (preedit && preedit[0] && !snapshot->preedit) {
         goto end;

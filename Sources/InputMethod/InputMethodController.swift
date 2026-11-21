@@ -5,10 +5,14 @@ import InputCore
 import LocalTranslation
 import OSLog
 import RimeInput
+import InputSession
 
 @objc(InputMethodController)
 @MainActor
 final class InputMethodController: IMKInputController {
+    #if DEBUG && IME_TEST_BUILD
+    private let probe = DebugIMEProbe()
+    #endif
     private let product = InputProduct.current
     private var isActive = false
     private var activeClient: (any IMKTextInput)?
@@ -20,6 +24,7 @@ final class InputMethodController: IMKInputController {
     private var eventRanges: HostRanges?
     private var engine: RimeEngine?
     private var currentPreedit = ""
+    private var preeditCaret = 0
     private var currentCandidates: [RimeCandidate] = []
     private var currentHighlightedIndex = 0
     private var candidateRevision: UInt64 = 0
@@ -96,11 +101,17 @@ final class InputMethodController: IMKInputController {
         }
         activeClient = sender as? any IMKTextInput
         activeApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        #if DEBUG && IME_TEST_BUILD
+        probe.activate(client: activeClient)
+        #endif
         isActive = true
         reloadSettings()
     }
 
     override func deactivateServer(_ sender: Any!) {
+        #if DEBUG && IME_TEST_BUILD
+        probe.stop()
+        #endif
         isActive = false
         clearDocumentContext()
         activeClient = nil
@@ -115,6 +126,10 @@ final class InputMethodController: IMKInputController {
 
     override func composedString(_ sender: Any!) -> Any! {
         currentPreedit
+    }
+
+    override func selectionRange() -> NSRange {
+        NSRange(location: preeditCaret, length: 0)
     }
 
     override func candidates(_ sender: Any!) -> [Any]! {
@@ -238,10 +253,16 @@ final class InputMethodController: IMKInputController {
         activeClient = client
 
         if IsSecureEventInputEnabled() {
+            #if DEBUG && IME_TEST_BUILD
+            probe.stop()
+            #endif
             clearDocumentContext()
             return false
         }
 
+        #if DEBUG && IME_TEST_BUILD
+        probe.record(.key, client: client)
+        #endif
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if modifiers.contains(.command) || modifiers.contains(.option) {
             commitComposition(sender)
@@ -335,12 +356,13 @@ final class InputMethodController: IMKInputController {
             showReplacementNotice(reason, client: client)
         case .success(let range):
             guard !awaitedHostReturn, let snapshot, let translation,
-                  client.attributedSubstring(from: range)?.string == snapshot.text else {
+                  TrackedTextReplacement.applyIfVerified(range, expected: snapshot.text,
+                    read: { client.attributedSubstring(from: $0)?.string },
+                    replace: { self.insert(translation.translatedText, in: $0, client: client) }) else {
                 clearDocumentContext()
                 showReplacementNotice(.unverifiedRange, client: client)
                 return
             }
-            insert(translation.translatedText, in: range, client: client)
             clearDocumentContext()
         }
     }
@@ -377,17 +399,22 @@ final class InputMethodController: IMKInputController {
             preedit: snapshot.preedit,
             highlightChanged: previousCandidate != nextCandidate || currentHighlightedIndex != snapshot.highlightedIndex
         )
-        if let commit = snapshot.commit, !commit.isEmpty {
-            insert(commit, in: Self.notFoundRange, client: client)
-            if !IsSecureEventInputEnabled() {
-                sentenceBuffer.append(commit)
-                recordCurrentCaret(client: client)
+        #if DEBUG && IME_TEST_BUILD
+        if nextCandidate == "你好" { probe.record(.candidateMatched, client: client) }
+        #endif
+        for edit in snapshot.hostEdits(previousPreedit: currentPreedit, previousCaret: preeditCaret) {
+            switch edit {
+            case .commit(let text):
+                insert(text, in: Self.notFoundRange, client: client)
+                if !IsSecureEventInputEnabled() {
+                    sentenceBuffer.append(text)
+                    recordCurrentCaret(client: client)
+                }
+            case .mark(let text):
+                currentPreedit = text
+                preeditCaret = snapshot.caretUTF16
+                setMarkedText(text, caret: preeditCaret, client: client)
             }
-        }
-
-        if snapshot.preedit != currentPreedit {
-            currentPreedit = snapshot.preedit
-            setMarkedText(snapshot.preedit, client: client)
         }
 
         currentCandidates = snapshot.candidates
@@ -457,6 +484,9 @@ final class InputMethodController: IMKInputController {
             translation = translationNotice.map { .message($0) } ?? .result(result.translatedText)
         case .failed(let request, let failure):
             source = request.sourceText
+            #if DEBUG && IME_TEST_BUILD
+            probe.record(failure == .modelsNotInstalled ? .translationUnavailable : .translationFailed, client: client)
+            #endif
             if failure.canRetry {
                 translation = .action(failure.message, button: "重试")
                 action = { [weak self] in self?.retryTranslation(request) }
@@ -487,6 +517,9 @@ final class InputMethodController: IMKInputController {
             showPanel(client: client)
             if client != nil, lastValidAnchor != nil, case .result = translation,
                case .ready(let request, _) = coordinator.state, lastPresentedTranslation != request.id {
+                #if DEBUG && IME_TEST_BUILD
+                probe.record(.translationReady, client: client)
+                #endif
                 lastPresentedTranslation = request.id
                 let duration = request.submittedAt.duration(to: .now).components
                 let elapsedMS = duration.seconds * 1_000 + duration.attoseconds / 1_000_000_000_000_000
@@ -521,6 +554,9 @@ final class InputMethodController: IMKInputController {
         switch target {
         case .candidate(let index):
             guard currentCandidates.indices.contains(index) else { return }
+            #if DEBUG && IME_TEST_BUILD
+            if index == currentHighlightedIndex { probe.record(.mouseSelected, client: activeClient) }
+            #endif
             snapshot = engine.selectCandidate(at: index)
         case .previousPage:
             guard canPageBackward else { return }
@@ -551,6 +587,13 @@ final class InputMethodController: IMKInputController {
             near: lastValidAnchor,
             clientWindowLevel: client.windowLevel()
         )
+        #if DEBUG && IME_TEST_BUILD
+        if probe.needsClickPoint, currentCandidates.indices.contains(currentHighlightedIndex),
+           currentCandidates[currentHighlightedIndex].text == "你好",
+           let point = panelController.highlightedPoint() {
+            probe.record(.candidateMatched, client: client, clickPoint: point)
+        }
+        #endif
     }
 
     private func startPositionRefresh() {
@@ -619,15 +662,18 @@ final class InputMethodController: IMKInputController {
 
     private func insert(_ text: String, in range: NSRange, client: (any IMKTextInput)?) {
         invalidateHostRanges()
+        #if DEBUG && IME_TEST_BUILD
+        probe.record(.commitRequested, client: client)
+        #endif
         client?.insertText(text, replacementRange: range)
         invalidateHostRanges()
     }
 
-    private func setMarkedText(_ text: String, client: (any IMKTextInput)?) {
+    private func setMarkedText(_ text: String, caret: Int, client: (any IMKTextInput)?) {
         invalidateHostRanges()
         client?.setMarkedText(
-            text,
-            selectionRange: NSRange(location: text.utf16.count, length: 0),
+            NSAttributedString(string: text, attributes: [.underlineStyle: NSUnderlineStyle.single.rawValue]),
+            selectionRange: NSRange(location: caret, length: 0),
             replacementRange: Self.notFoundRange
         )
         invalidateHostRanges()
@@ -667,13 +713,14 @@ final class InputMethodController: IMKInputController {
     private func clearDocumentContext() {
         stopPositionRefresh()
         if !currentPreedit.isEmpty {
-            setMarkedText("", client: activeClient)
+            setMarkedText("", caret: 0, client: activeClient)
         }
         engine?.clear()
         candidateRevision &+= 1
         canPageBackward = false
         canPageForward = false
         currentPreedit = ""
+        preeditCaret = 0
         currentCandidates = []
         currentHighlightedIndex = 0
         clearEnglishCandidates()
@@ -1113,7 +1160,7 @@ final class InputMethodController: IMKInputController {
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Helpers", isDirectory: true)
             .appendingPathComponent("SentenceAlongSetup.app", isDirectory: true)
-        guard let route = URL(string: "sentencealong-settings://\(section)") else { return }
+        guard let route = URL(string: "\(InputSettingsStore.settingsScheme)://\(section)") else { return }
         NSWorkspace.shared.open(
             [route], withApplicationAt: setupURL,
             configuration: NSWorkspace.OpenConfiguration(),

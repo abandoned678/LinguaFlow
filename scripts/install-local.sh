@@ -9,11 +9,26 @@ source_bundle="$project_dir/.build/SentenceAlong.app"
 destination_bundle="$HOME/Library/Input Methods/SentenceAlong.app"
 system_bundle="/Library/Input Methods/SentenceAlong.app"
 expected_id=com.abandoned678.inputmethod.SentenceAlong
+register_only=0
+[[ ${1:-} != --register-test-build ]] || register_only=1
+test_install=0
+case "${1:-}" in
+  ""|--test-build|--register-test-build) ;;
+  *) echo "Unknown installation mode" >&2; exit 64 ;;
+esac
+if [[ ${1:-} == --test-build || ${1:-} == --register-test-build ]]; then
+  test_install=1
+  source_bundle="$project_dir/.build/ime-testing/SentenceAlongDebug.app"
+  destination_bundle="$HOME/Library/Input Methods/SentenceAlongDebug.app"
+  system_bundle=
+  expected_id=com.abandoned678.inputmethod.SentenceAlongDebug
+fi
 previous_source=
 previously_enabled=0
 
 verify_staged_bundle() {
   local bundle=$1 minimum
+  [[ $(plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist") == "$expected_id" ]] || return 65
   codesign --verify --deep --strict "$bundle" || return $?
   minimum=$(/usr/bin/plutil -extract LSMinimumSystemVersion raw "$bundle/Contents/Info.plist") || return $?
   autoload -Uz is-at-least
@@ -42,7 +57,7 @@ prepare_for_swap() {
       return 65
     fi
     previous_source="$bundle/Contents/MacOS/SentenceAlongIME"
-  elif [[ -x "$system_bundle/Contents/MacOS/SentenceAlongIME" ]]; then
+  elif [[ -n "$system_bundle" && -x "$system_bundle/Contents/MacOS/SentenceAlongIME" ]]; then
     previous_source="$system_bundle/Contents/MacOS/SentenceAlongIME"
   fi
   if [[ -n "$previous_source" ]] && "$previous_source" --verify-input-source >/dev/null 2>&1; then
@@ -52,6 +67,19 @@ prepare_for_swap() {
 }
 
 activate_bundle() {
+  if (( test_install )); then
+    local registrar=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    "$registrar" -f "$1" || return $?
+    local binary="$1/Contents/MacOS/SentenceAlongIME"
+    "$binary" --register-input-source || return $?
+    if (( register_only && ! previously_enabled )); then return 0; fi
+    local attempt
+    for attempt in {1..5}; do
+      if "$binary" --enable-input-source && "$binary" --verify-input-source; then return 0; fi
+      sleep 1
+    done
+    return 1
+  fi
   "$1/Contents/MacOS/SentenceAlongIME" --install-input-source || return $?
   "$project_dir/scripts/check-installed-input-sources.swift" --local
 }
@@ -72,9 +100,15 @@ restore_registration() {
   fi
 }
 
-"$project_dir/scripts/build-app.sh" release >/dev/null
+if (( ! test_install )); then
+  "$project_dir/scripts/build-app.sh" release >/dev/null
+fi
 replace_local_bundle "$source_bundle" "$destination_bundle"
 
 echo "Installed: $destination_bundle"
+if (( test_install )); then
+  echo "Debug ID: $expected_id. Enable 随键译 Debug in Keyboard settings if necessary."
+  exit 0
+fi
 echo "Select 随键译 from the input menu. If missing, check System Settings > Keyboard > Text Input > Edit."
 echo "Before translating, open SentenceAlong's input menu and choose 准备本地翻译模型."

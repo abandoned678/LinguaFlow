@@ -75,6 +75,13 @@ enum InputMethodApplication {
         switch bundleIdentifier {
         case "com.abandoned678.inputmethod.SentenceAlong":
             bundleName = "SentenceAlong.app"
+        #if DEBUG && IME_TEST_BUILD
+        case "com.abandoned678.inputmethod.SentenceAlongDebug":
+            return Bundle.main.bundleURL.standardizedFileURL ==
+                FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Library/Input Methods/SentenceAlongDebug.app", isDirectory: true)
+                    .standardizedFileURL
+        #endif
         default:
             return false
         }

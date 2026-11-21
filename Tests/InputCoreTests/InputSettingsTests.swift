@@ -3,6 +3,16 @@ import XCTest
 @testable import InputCore
 
 final class InputSettingsTests: XCTestCase {
+    func testTestIMEAndHelperShareOnlyTheDebugDataDirectory() {
+        let ime = "com.abandoned678.inputmethod.SentenceAlong"
+        for id in [ime, ime + ".Setup"] {
+            XCTAssertEqual(InputSettingsStore.productDirectory(for: id), "SentenceAlong")
+        }
+        for id in [ime + "Debug", ime + "Debug.Setup"] {
+            XCTAssertEqual(InputSettingsStore.productDirectory(for: id), "SentenceAlongDebug")
+        }
+    }
+
     func testMissingAndInvalidFieldsUseDefaults() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

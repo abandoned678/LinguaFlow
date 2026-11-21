@@ -30,7 +30,7 @@ final class AppEnvironment {
                 for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
             )
             let userData = appSupport
-                .appendingPathComponent("SentenceAlong", isDirectory: true)
+                .appendingPathComponent(InputSettingsStore.productDirectory, isDirectory: true)
                 .appendingPathComponent("Rime", isDirectory: true)
             runtime = try RimeRuntime(sharedDataDirectory: sharedData, userDataDirectory: userData)
             publish(.available)

@@ -45,6 +45,8 @@ swift run translation-checks
 
 `translation-checks` 在模型尚未下载时会以退出码 2 返回；这是环境状态，不是构建失败。
 
+Debug 输入法的构建、独立安装和真实宿主用例见 [Debug 测试指南](docs/IME_DEBUG_TESTING_SPEC.md#开发机运行)。
+
 XCTest 和自检程序可分别运行。真实宿主的操作步骤见 [首版验收表](docs/V1_REQUIREMENTS.md#v1-host-acceptance)。
 
 ## 隐私边界
