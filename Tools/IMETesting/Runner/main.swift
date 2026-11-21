@@ -105,6 +105,7 @@ final class RunDriver {
         switch run.scenario {
         case "composition-caret": try compositionEditing()
         case "punctuation-preview": try punctuationPreview()
+        case "panel-host-exit", "panel-mark-ended", "panel-editor-cleared", "panel-app-switch": try panelLifecycle()
         case "candidate-click": try candidateSelection()
         case "translation-undo": try translationReplacement()
         default: try pinyinCommit()
@@ -116,7 +117,7 @@ final class RunDriver {
 @MainActor
 func execute() throws {
     let args = Array(CommandLine.arguments.dropFirst())
-    guard args.count == 2 || args.count == 3, args[0] == "--case", ["pinyin-commit", "composition-caret", "punctuation-preview", "translation-undo", "candidate-click"].contains(args[1]),
+    guard args.count == 2 || args.count == 3, args[0] == "--case", ["pinyin-commit", "composition-caret", "punctuation-preview", "translation-undo", "candidate-click", "panel-host-exit", "panel-mark-ended", "panel-editor-cleared", "panel-app-switch"].contains(args[1]),
           args.count == 2 || args[2] == "--manual" else {
         throw RunFailure.blocked("usage: IMERunner --case pinyin-commit [--manual]")
     }

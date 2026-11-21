@@ -23,6 +23,8 @@ final class InputMethodController: IMKInputController {
     }
     private var eventRanges: HostRanges?
     private var engine: RimeEngine?
+    private var observedHostMark = false
+    private var palettesHidden = false
     private var currentPreedit = ""
     private var preeditCaret = 0
     private var currentCandidates: [RimeCandidate] = []
@@ -104,6 +106,7 @@ final class InputMethodController: IMKInputController {
         #if DEBUG && IME_TEST_BUILD
         probe.activate(client: activeClient)
         #endif
+        palettesHidden = false
         isActive = true
         reloadSettings()
     }
@@ -116,6 +119,24 @@ final class InputMethodController: IMKInputController {
         clearDocumentContext()
         activeClient = nil
         activeApplicationPID = nil
+    }
+
+    override func inputControllerWillClose() {
+        isActive = false
+        #if DEBUG && IME_TEST_BUILD
+        probe.stop()
+        #endif
+        clearDocumentContext(clearHostMark: false)
+        activeClient = nil
+        activeApplicationPID = nil
+        super.inputControllerWillClose()
+    }
+
+    override func hidePalettes() {
+        palettesHidden = true
+        stopPositionRefresh()
+        panelController.hide(owner: self)
+        super.hidePalettes()
     }
 
     override func commitComposition(_ sender: Any!) {
@@ -241,6 +262,7 @@ final class InputMethodController: IMKInputController {
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
         guard isActive, let event, event.type == .keyDown else { return false }
+        palettesHidden = false
         let timing = Self.timing.beginInterval("Input event")
         defer { Self.timing.endInterval("Input event", timing) }
         let client = client(from: sender)
@@ -411,6 +433,7 @@ final class InputMethodController: IMKInputController {
                     recordCurrentCaret(client: client)
                 }
             case .mark(let text):
+                if currentPreedit.isEmpty || text.isEmpty { observedHostMark = false }
                 currentPreedit = text
                 preeditCaret = snapshot.caretUTF16
                 setMarkedText(text, caret: preeditCaret, client: client)
@@ -466,6 +489,11 @@ final class InputMethodController: IMKInputController {
     }
 
     private func renderPanel(client: (any IMKTextInput)?) {
+        guard isActive, !palettesHidden else { return }
+        guard activeApplicationPID == NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            clearDocumentContext(clearHostMark: false)
+            return
+        }
         let source: String?
         let translation: PreviewPanelController.TranslationState
         var action: (() -> Void)?
@@ -627,12 +655,35 @@ final class InputMethodController: IMKInputController {
             clearDocumentContext()
             return
         }
+        guard activeApplicationPID == NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            clearDocumentContext(clearHostMark: false)
+            return
+        }
         eventRanges = HostRanges(client: ObjectIdentifier(activeClient as AnyObject))
         defer { eventRanges = nil }
+        if observedHostMark && !hostStillHasComposition(activeClient) {
+            // The host ended inline editing without sending IMK a deactivation.
+            clearDocumentContext(clearHostMark: false)
+            return
+        }
         reconcileTrackedCaret(client: activeClient)
         guard panelController.ownsPanel(self) else { return }
         captureCaretAnchor(client: activeClient)
         showPanel(client: activeClient)
+    }
+
+    private func hostStillHasComposition(_ client: any IMKTextInput) -> Bool {
+        let mark = readMarkedRange(client)
+        guard mark.location != NSNotFound, mark.length > 0 else { return false }
+        let caret = readSelection(client)
+        guard caret.location != NSNotFound else { return false }
+        // Some clients retain the last IMK mark after clearing their editor. Only
+        // verify our own composition, and only if the host caret has diverged.
+        if caret == mark { return true }
+        if caret.length == 0, caret.location >= mark.location,
+           caret.location - mark.location == preeditCaret { return true }
+        guard mark.length == currentPreedit.utf16.count else { return false }
+        return client.attributedSubstring(from: mark)?.string == currentPreedit
     }
 
     private func readSelection(_ client: any IMKTextInput) -> NSRange {
@@ -684,6 +735,9 @@ final class InputMethodController: IMKInputController {
         guard let client else { return }
 
         let markedRange = readMarkedRange(client)
+        if !currentPreedit.isEmpty, markedRange.location != NSNotFound, markedRange.length > 0 {
+            observedHostMark = true
+        }
         let selectedRange = readSelection(client)
         let preferredRanges = currentPreedit.isEmpty
             ? [selectedRange, markedRange]
@@ -710,9 +764,10 @@ final class InputMethodController: IMKInputController {
         }
     }
 
-    private func clearDocumentContext() {
+    private func clearDocumentContext(clearHostMark: Bool = true) {
         stopPositionRefresh()
-        if !currentPreedit.isEmpty {
+        observedHostMark = false
+        if clearHostMark, !currentPreedit.isEmpty {
             setMarkedText("", caret: 0, client: activeClient)
         }
         engine?.clear()

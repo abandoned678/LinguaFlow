@@ -100,6 +100,13 @@ final class HostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         view.trace?.record(.hostSelectedSource)
                     }
                 }
+                if ["panel-mark-ended", "panel-editor-cleared"].contains(run.scenario), view.hasMarkedText(),
+                   FileManager.default.fileExists(atPath: run.directory.appendingPathComponent("end-mark").path) {
+                    if run.scenario == "panel-mark-ended" { view.inputContext?.discardMarkedText() }
+                    view.unmarkText()
+                    if run.scenario == "panel-editor-cleared" { view.string = "" }
+                    if !view.hasMarkedText() { view.trace?.record(.markEnded) }
+                }
                 if view.translated && view.string == "你好" && !view.hasMarkedText() {
                     view.translated = false
                     view.trace?.record(.undoRestored)
