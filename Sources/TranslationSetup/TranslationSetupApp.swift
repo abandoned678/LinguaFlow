@@ -16,7 +16,7 @@ struct TranslationSetupApp: App {
     var body: some Scene {
         Window("输入法设置", id: "setup") {
             TranslationSetupView()
-                .frame(width: 520, height: 380)
+                .frame(width: 660, height: 510)
         }
         .windowResizability(.contentSize)
     }
@@ -24,7 +24,7 @@ struct TranslationSetupApp: App {
 
 private struct TranslationSetupView: View {
     private enum Page: Hashable {
-        case translation, appearance, about
+        case input, translation, appearance, dictionary, guide, about
     }
 
     @State private var page: Page = .translation
@@ -35,13 +35,35 @@ private struct TranslationSetupView: View {
     var body: some View {
         TabView(selection: $page) {
             Form {
+                Section("拼音输入") {
+                    Picker("每页候选数", selection: setting(\.candidatePageSize)) {
+                        ForEach(5...10, id: \.self) { Text("\($0) 项").tag($0) }
+                    }
+                    Toggle("使用英文标点", isOn: setting(\.usesASCIIPunctuation))
+                    Toggle("单按 Shift 切换临时英文", isOn: setting(\.shiftTogglesEnglish))
+                }
+                PinyinSettingsControls(layout: setting(\.pinyinLayout), fuzzy: setting(\.fuzzyInitials),
+                                          learnsWords: setting(\.learnsWords))
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("输入与候选", systemImage: "keyboard") }
+            .tag(Page.input)
+
+            Form {
                 Section("翻译预览") {
                     Toggle("启用翻译预览", isOn: setting(\.translationEnabled))
+                    Picker("翻译方向", selection: setting(\.translationDirection)) {
+                        Text("中文 → 英文").tag(TranslationDirection.chineseToEnglish)
+                        Text("英文 → 简体中文").tag(TranslationDirection.englishToChinese)
+                    }
                     Picker("响应速度", selection: setting(\.speed)) {
                         ForEach(InputSettings.Speed.allCases, id: \.self) { speed in
                             Text(speed.label).tag(speed)
                         }
                     }
+                }
+                AppPreviewSettings(overrides: settings.appPreviewOverrides) { id, choice in
+                    update { $0.appPreviewOverrides[id] = choice == .followGlobal ? nil : choice }
                 }
                 TranslationModelSettings()
             }
@@ -56,11 +78,24 @@ private struct TranslationSetupView: View {
                 Picker("浮层字号", selection: setting(\.previewSize)) {
                     ForEach(InputSettings.PreviewSize.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
+                Picker("候选翻页键", selection: setting(\.pagingKeys)) {
+                    ForEach(InputSettings.PagingKeys.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Button("恢复默认翻页键") { update { $0.pagingKeys = .standard } }
+                    .disabled(settings.pagingKeys == .standard)
                 ShortcutRecorder(keyCode: setting(\.replacementKeyCode))
             }
             .formStyle(.grouped)
             .tabItem { Label("外观与操作", systemImage: "textformat.size") }
             .tag(Page.appearance)
+
+            DictionarySettingsView()
+                .tabItem { Label("词典与短语", systemImage: "book") }
+                .tag(Page.dictionary)
+
+            UsageGuide(settings: settings)
+                .tabItem { Label("使用说明", systemImage: "questionmark.circle") }
+                .tag(Page.guide)
 
             Form {
                 DiagnosticsSettings(resources: appResources, engineHealth: engineHealth)
@@ -73,6 +108,7 @@ private struct TranslationSetupView: View {
         .onOpenURL { url in
             guard url.scheme == InputSettingsStore.settingsScheme else { return }
             if url.host == "translation" { page = .translation }
+            if url.host == "guide" { page = .guide }
             if url.host == "about" { page = .about }
         }
         .onReceive(DistributedNotificationCenter.default().publisher(for: InputSettingsStore.didChange)) { _ in
@@ -96,13 +132,14 @@ private struct TranslationSetupView: View {
         Binding {
             settings[keyPath: key]
         } set: { value in
-            do {
-                try InputSettingsStore.shared.update { $0[keyPath: key] = value }
-            } catch {
-                saveFailed = true
-            }
-            settings = InputSettingsStore.shared.read()
+            update { $0[keyPath: key] = value }
         }
+    }
+
+    private func update(_ edit: (inout InputSettings) -> Void) {
+        do { try InputSettingsStore.shared.update(edit) }
+        catch { saveFailed = true }
+        settings = InputSettingsStore.shared.read()
     }
 
     private var appResources: URL {

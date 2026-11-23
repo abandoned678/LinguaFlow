@@ -1,9 +1,14 @@
 import AppKit
+import Carbon
 import IMETrace
 
 extension RunDriver {
     func candidateSelection() throws {
-        try composeNihao()
+        if run.scenario == "candidate-tenth-click" {
+            try typeLetters([UInt16(kVK_ANSI_S), UInt16(kVK_ANSI_H), UInt16(kVK_ANSI_I)])
+        } else {
+            try composeNihao()
+        }
         if manual {
             print("请点击高亮的「你好」。"); fflush(stdout)
         } else {

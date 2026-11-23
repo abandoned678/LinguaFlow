@@ -4,7 +4,7 @@ import CoreGraphics
 public enum TraceRole: String, Codable, Sendable { case ime, host }
 public enum TraceStage: String, Codable, Sendable {
     case hostLaunched, hostSelectedSource, focused, lostFocus, activated, key, candidateMatched, commitRequested, marked, inserted
-    case middleInsertion, middleDeletion, markEnded
+    case middleInsertion, middleDeletion, markEnded, switchPending, directionApplied
     case documentMatched, documentMismatch, stopped, overflow, translationReady, translationUnavailable, translationFailed, translatedDocument, undoRestored, mouseSelected
 }
 

@@ -5,6 +5,15 @@ import RimeInput
 @MainActor
 struct RimeChecks {
     static func main() throws {
+        if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--profiles" {
+            try PinyinProfiles.run(shared: URL(fileURLWithPath: CommandLine.arguments[2]))
+            return
+        }
+        if CommandLine.arguments.count == 5, CommandLine.arguments[1] == "--quality" {
+            let paths = CommandLine.arguments.dropFirst(2).map { URL(fileURLWithPath: $0) }
+            try PinyinQuality.run(shared: paths[0], user: paths[1], corpus: paths[2])
+            return
+        }
         guard CommandLine.arguments.count == 3 else {
             fputs("usage: rime-checks <shared-data-dir> <user-data-dir>\n", stderr)
             exit(2)
@@ -133,6 +142,83 @@ struct RimeChecks {
               engine.process(keyCode: RimeKey.escape).commit == nil else {
             fputs("Rime failed to commit exactly one selected candidate\n", stderr)
             exit(1)
+        }
+
+        func type(_ letters: String) -> RimeSnapshot {
+            var snapshot = RimeSnapshot(consumed: false, preedit: "", candidates: [], highlightedIndex: 0, commit: nil)
+            for byte in letters.utf8 { snapshot = engine.process(keyCode: Int32(byte)) }
+            return snapshot
+        }
+
+        _ = type("nihaonihao")
+        let raw = engine.process(keyCode: RimeKey.return)
+        guard raw.consumed, raw.commit == "nihaonihao", raw.preedit.isEmpty,
+              !engine.process(keyCode: RimeKey.return).consumed else {
+            fputs("Return must commit raw composition exactly once and pass through when idle\n", stderr)
+            exit(1)
+        }
+        engine.usesASCIIPunctuation = true
+        for character in ",.!?".unicodeScalars {
+            let punctuation = engine.process(keyCode: Int32(character.value))
+            guard punctuation.consumed, punctuation.commit == String(character), punctuation.preedit.isEmpty else {
+                fputs("ASCII punctuation must be explicitly committed once for sentence tracking\n", stderr)
+                exit(1)
+            }
+        }
+        engine.usesASCIIPunctuation = false
+        guard engine.process(keyCode: 63).commit == "？" else {
+            fputs("Disabling ASCII punctuation did not restore Chinese punctuation\n", stderr)
+            exit(1)
+        }
+
+        // Project the native ordering into larger pages without skipping the
+        // first candidate or repeating the previous page's final candidate.
+        var reference = type("shi").candidates
+        for _ in 0..<3 { reference += engine.changePage(backward: false).candidates }
+        engine.clear()
+        engine.candidatePageSize = 10
+        let longFirstPage = type("shi")
+        let longSecondPage = engine.changePage(backward: false)
+        guard longFirstPage.candidates + longSecondPage.candidates == reference else {
+            fputs("Resizing candidate pages changed the native ordering\n", stderr)
+            exit(1)
+        }
+        engine.clear()
+
+        for count in 5...10 {
+            engine.candidatePageSize = count
+            let first = type("shi")
+            guard first.candidates.count == count else {
+                fputs("Rime candidate page did not match configured size\n", stderr)
+                exit(1)
+            }
+            engine.candidatePageSize = count == 10 ? 5 : count + 1
+            let modifiedNext = engine.process(keyCode: 118, modifiers: 4)
+            let modifiedPrevious = engine.process(keyCode: 121, modifiers: 4)
+            guard modifiedNext.pageNumber == 1, modifiedNext.highlightedIndex == 0,
+                  modifiedPrevious.pageNumber == 0, modifiedPrevious.candidates == first.candidates else {
+                fputs("Control+V/Y must move one displayed page in both directions\n", stderr)
+                exit(1)
+            }
+            let next = engine.changePage(backward: false)
+            guard next.pageNumber == 1, next.candidates.count == count, next.commit == nil,
+                  engine.changePage(backward: true).candidates == first.candidates else {
+                fputs("Changing the requested page size disturbed an active composition\n", stderr)
+                exit(1)
+            }
+            let keyCode = Int32(48 + count % 10)
+            let selected = engine.process(keyCode: keyCode)
+            guard selected.commit == first.candidates[count - 1].text, selected.preedit.isEmpty else {
+                fputs("Final numbered candidate did not match the committed text\n", stderr)
+                exit(1)
+            }
+            engine.candidatePageSize = count
+            _ = type("shi")
+            let later = engine.process(keyCode: RimeKey.pageDown)
+            guard later.candidates.count == count, engine.selectCandidate(at: count - 1).commit == later.candidates.last?.text else {
+                fputs("Clicking the final candidate on a later page failed\n", stderr)
+                exit(1)
+            }
         }
 
         #if DEBUG

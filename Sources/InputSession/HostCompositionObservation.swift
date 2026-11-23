@@ -65,3 +65,15 @@ public struct HostCompositionObservation {
         return pendingEnd == reason ? reason : nil
     }
 }
+
+extension HostCompositionObservation {
+    public func ownedMarkToDiscard(preedit: String, mark: NSRange, selection: NSRange,
+                                   read: (NSRange) -> String?) -> NSRange? {
+        guard !preedit.isEmpty, mark.location != NSNotFound, mark.location >= 0,
+              mark.length == preedit.utf16.count, verifiedMark.map({ $0 == mark }) ?? true else { return nil }
+        let caretInside = selection.length == 0 && selection.location != NSNotFound &&
+            selection.location >= mark.location && selection.location - mark.location <= mark.length
+        guard selection == mark || caretInside, read(mark) == preedit else { return nil }
+        return mark
+    }
+}

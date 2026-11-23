@@ -83,7 +83,7 @@ final class PreviewPanelController {
         previewView.update(
             isComposing: isComposing,
             sourceText: sourceText,
-            candidates: Array(candidates.prefix(5)),
+            candidates: candidates,
             highlightedIndex: highlightedIndex,
             translation: translation,
             direction: direction,
@@ -95,10 +95,12 @@ final class PreviewPanelController {
     }
 
     #if DEBUG && IME_TEST_BUILD
-    func highlightedPoint() -> CGPoint? {
+    func candidatePoint(at index: Int) -> CGPoint? {
         guard panel.isVisible, let screenTop = NSScreen.screens.first?.frame.maxY else { return nil }
         panel.displayIfNeeded()
-        guard let center = previewView.highlightedCenter else { return nil }
+        // The click test only accepts a candidate on the same row as item 1.
+        guard let center = previewView.candidateCenter(at: index),
+              center.y == previewView.candidateCenter(at: 0)?.y else { return nil }
         let point = panel.convertPoint(toScreen: previewView.convert(center, to: nil))
         return CGPoint(x: point.x, y: screenTop - point.y)
     }
@@ -120,6 +122,9 @@ final class PreviewPanelController {
         let visibleFrame = NSScreen.screens
             .first(where: { $0.frame.intersects(anchor) })?
             .visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+        let availableWidth = visibleFrame.isEmpty ? UnifiedPanelLayout.maximumWidth
+            : floor(visibleFrame.width - UnifiedPanelLayout.screenMargin * 2)
+        previewView.setAvailableWidth(max(1, availableWidth))
         let content = previewView.preferredSize
         let maxHeight = max(1, visibleFrame.height - UnifiedPanelLayout.screenMargin * 2)
         let size = NSSize(width: content.width, height: min(content.height, maxHeight))
@@ -179,16 +184,17 @@ private final class PreviewView: NSView {
 
     private var layout = InputSettings.PreviewLayout.standard
     private var size = InputSettings.PreviewSize.standard
-    private var shortcutKeyCode = SentenceReplacementShortcut.defaultKeyCode
     private var regularFont = NSFont.systemFont(ofSize: 14)
     private var labelFont = NSFont.systemFont(ofSize: 11, weight: .medium)
-    private var shortcutFont = NSFont.systemFont(ofSize: 10)
-    private var labelColumnWidth: CGFloat { layout == .compact ? 0 : ceil(26 * size.fontScale) }
+    private var labelColumnWidth: CGFloat {
+        if case .result = translation { return ceil(26 * size.fontScale) }
+        return layout == .compact ? 0 : ceil(26 * size.fontScale)
+    }
     private var lineHeight: CGFloat { ceil(20 * size.fontScale) }
     private var candidateHeight: CGFloat { ceil(23 * size.fontScale) }
     private var candidateGap: CGFloat { 4 }
     private var candidateInset: CGFloat { 5 }
-    private var shortcutHeight: CGFloat { ceil(16 * size.fontScale) }
+    private var availableWidth = UnifiedPanelLayout.maximumWidth
     private var reservedTranslationHeight: CGFloat = 0
 
     var hasAction: Bool { action != nil }
@@ -241,7 +247,6 @@ private final class PreviewView: NSView {
             || self.spellingCorrection != spellingCorrection
             || layout != settings.previewLayout
             || size != settings.previewSize
-            || shortcutKeyCode != settings.replacementKeyCode
             || self.candidateInteraction?.canPageBackward != candidateInteraction?.canPageBackward
             || self.candidateInteraction?.canPageForward != candidateInteraction?.canPageForward
 
@@ -258,11 +263,9 @@ private final class PreviewView: NSView {
             let scale = settings.previewSize.fontScale
             regularFont = NSFont.systemFont(ofSize: 14 * scale)
             labelFont = NSFont.systemFont(ofSize: 11 * scale, weight: .medium)
-            shortcutFont = NSFont.systemFont(ofSize: 10 * scale)
         }
         size = settings.previewSize
         layout = settings.previewLayout
-        shortcutKeyCode = settings.replacementKeyCode
         self.isComposing = isComposing
         self.sourceText = sourceText
         self.candidates = candidates
@@ -277,23 +280,34 @@ private final class PreviewView: NSView {
         self.candidateInteraction = candidateInteraction
         self.action = action
         if layoutChanged {
-            candidateBounds.removeAll(keepingCapacity: true)
-            let interval = Self.timing.beginInterval("Measure panel")
-            preferredSize = calculateSize()
-            Self.timing.endInterval("Measure panel", interval)
-            if frame.size != preferredSize { frame.size = preferredSize }
-            if case .action(_, let title) = translation, action != nil {
-                actionButton.title = title
-                actionButton.sizeToFit()
-                actionButton.frame.origin = NSPoint(x: valueX, y: bounds.height - actionHeight)
-                actionButton.isHidden = false
-            } else {
-                actionButton.isHidden = true
-            }
+            measure()
         }
         if layoutChanged || highlightChanged {
             needsDisplay = true
             setAccessibilityValue(accessibilityText)
+        }
+    }
+
+    func setAvailableWidth(_ width: CGFloat) {
+        guard availableWidth != width else { return }
+        availableWidth = width
+        measure()
+        needsDisplay = true
+    }
+
+    private func measure() {
+        candidateBounds.removeAll(keepingCapacity: true)
+        let interval = Self.timing.beginInterval("Measure panel")
+        preferredSize = calculateSize()
+        Self.timing.endInterval("Measure panel", interval)
+        if frame.size != preferredSize { frame.size = preferredSize }
+        if case .action(_, let title) = translation, action != nil {
+            actionButton.title = title
+            actionButton.sizeToFit()
+            actionButton.frame.origin = NSPoint(x: valueX, y: bounds.height - actionHeight)
+            actionButton.isHidden = false
+        } else {
+            actionButton.isHidden = true
         }
     }
 
@@ -323,8 +337,8 @@ private final class PreviewView: NSView {
     }
 
     #if DEBUG && IME_TEST_BUILD
-    var highlightedCenter: CGPoint? {
-        guard let rect = candidateBounds.first(where: { $0.0 == .candidate(highlightedIndex) })?.1 else { return nil }
+    func candidateCenter(at index: Int) -> CGPoint? {
+        guard let rect = candidateBounds.first(where: { $0.0 == .candidate(index) })?.1 else { return nil }
         return CGPoint(x: rect.midX, y: rect.midY)
     }
     #endif
@@ -356,7 +370,7 @@ private final class PreviewView: NSView {
         candidateBounds.removeAll(keepingCapacity: true)
         if !candidates.isEmpty {
             drawCandidates(y: y)
-            y += candidateRowHeight + UnifiedPanelLayout.rowSpacing
+            y += candidateHeight + UnifiedPanelLayout.rowSpacing
         }
 
         if let spellingCorrection {
@@ -378,6 +392,7 @@ private final class PreviewView: NSView {
     }
 
     private var headerContent: (label: String, value: String)? {
+        if case .result = translation { return nil }
         guard layout == .standard, !isComposing, let sourceText, !sourceText.isEmpty else { return nil }
         return (direction.sourceLabel, sourceText)
     }
@@ -395,8 +410,6 @@ private final class PreviewView: NSView {
         }
     }
 
-    private var shortcutHint: String { "\(SentenceReplacementShortcut.label(for: shortcutKeyCode)) 替换当前句" }
-
     private func calculateSize() -> NSSize {
         var widths: [CGFloat] = []
         if let header = headerContent { widths.append(labeledTextWidth(header.value)) }
@@ -405,26 +418,25 @@ private final class PreviewView: NSView {
             widths.append(labeledTextWidth("\(spellingCorrection.original) → \(spellingCorrection.replacement)   Tab 接受"))
         }
         if let translationText { widths.append(labeledTextWidth(translationText)) }
-        if case .result = translation { widths.append(textWidth(shortcutHint, font: shortcutFont) + labelColumnWidth) }
         if case .action(_, let title) = translation { widths.append(textWidth(title, font: regularFont) + labelColumnWidth + 26) }
 
-        let width = UnifiedPanelLayout.size(contentWidths: widths, rowHeights: []).width
+        let widthLimit = min(availableWidth, max(UnifiedPanelLayout.maximumWidth, candidateRowWidth + contentX * 2))
+        let width = UnifiedPanelLayout.size(contentWidths: widths, rowHeights: [], widthLimit: widthLimit).width
         let textWidth = width - contentX * 2 - labelColumnWidth
         var heights: [CGFloat] = []
         if let header = headerContent { heights.append(max(lineHeight, textHeight(header.value, width: textWidth))) }
-        if !candidates.isEmpty { heights.append(candidateRowHeight) }
+        if !candidates.isEmpty { heights.append(candidateHeight) }
         if spellingCorrection != nil { heights.append(lineHeight) }
         if let translationText {
             var height = max(lineHeight, textHeight(translationText, width: textWidth))
-            if case .result = translation { height += shortcutHeight }
             if case .action = translation { height += actionHeight }
             if layout == .standard {
-                reservedTranslationHeight = min(max(reservedTranslationHeight, height, lineHeight + shortcutHeight), lineHeight * 3)
+                reservedTranslationHeight = min(max(reservedTranslationHeight, height), lineHeight * 3)
                 height = max(height, reservedTranslationHeight)
             }
             heights.append(height)
         }
-        return UnifiedPanelLayout.size(contentWidths: widths, rowHeights: heights)
+        return UnifiedPanelLayout.size(contentWidths: widths, rowHeights: heights, widthLimit: widthLimit)
     }
 
     private func drawLabeledText(label: String, value: String, y: CGFloat, height: CGFloat) {
@@ -476,16 +488,11 @@ private final class PreviewView: NSView {
 
     private func candidateFrames(items: [CandidateItem], width: CGFloat, y: CGFloat) -> [(CandidateItem, NSRect)] {
         var x = contentX
-        var rowY = y
-        let maximumX = contentX + width
-        return items.map { item in
-            let itemWidth = min(item.width, width)
-            if x > contentX, x + itemWidth > maximumX {
-                x = contentX
-                rowY += candidateHeight + UnifiedPanelLayout.rowSpacing
-            }
+        let gaps = candidateGap * CGFloat(max(0, items.count - 1))
+        let widths = UnifiedPanelLayout.candidateWidths(items.map(\.width), available: width - gaps)
+        return zip(items, widths).map { item, itemWidth in
             defer { x += itemWidth + candidateGap }
-            return (item, NSRect(x: x, y: rowY, width: itemWidth, height: candidateHeight))
+            return (item, NSRect(x: x, y: y, width: itemWidth, height: candidateHeight))
         }
     }
 
@@ -540,16 +547,6 @@ private final class PreviewView: NSView {
             font: regularFont,
             lineBreakMode: .byWordWrapping
         )
-
-        if case .result = translation {
-            drawText(
-                shortcutHint,
-                in: NSRect(x: valueX, y: y + height + 2, width: availableWidth, height: shortcutHeight),
-                color: .tertiaryLabelColor,
-                font: shortcutFont,
-                lineBreakMode: .byClipping
-            )
-        }
     }
 
     private func drawCorrection(_ correction: EnglishSpellingCorrection, y: CGFloat) {
@@ -576,17 +573,12 @@ private final class PreviewView: NSView {
         return widths.reduce(0, +) + CGFloat(max(0, widths.count - 1)) * candidateGap
     }
 
-    private var candidateRowHeight: CGFloat {
-        candidateFrames(items: candidateItems, width: UnifiedPanelLayout.maximumWidth - contentX * 2, y: 0)
-            .last?.1.maxY ?? 0
-    }
-
     private func candidateWidth(at index: Int, candidate: RimeCandidate) -> CGFloat {
         textWidth(candidateTitle(at: index, candidate: candidate), font: regularFont) + candidateInset * 2
     }
 
     private func candidateTitle(at index: Int, candidate: RimeCandidate) -> String {
-        let prefix = "\(index + 1) \(candidate.text)"
+        let prefix = "\((index + 1) % 10) \(candidate.text)"
         guard
             direction == .englishToChinese,
             let comment = candidate.comment?.trimmingCharacters(in: .whitespacesAndNewlines),

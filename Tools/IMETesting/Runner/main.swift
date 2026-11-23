@@ -1,6 +1,7 @@
 import AppKit
 import Carbon
 import IMETrace
+import InputCore
 
 enum RunFailure: Error {
     case blocked(String), failed(String)
@@ -15,6 +16,9 @@ var interrupted: sig_atomic_t = 0
 
 @MainActor
 final class RunDriver {
+    static let debugSettings = InputSettingsStore(directory: TraceRun.root.deletingLastPathComponent(),
+                                                 domain: TraceRun.imeID + ".preferences")
+
     let run: TraceRun
     let host: NSRunningApplication
     let manual: Bool
@@ -67,11 +71,24 @@ final class RunDriver {
         }
     }
 
+    static func tapShift(to pid: pid_t, key: UInt16 = UInt16(kVK_Shift), verifyTarget: () throws -> Void) throws {
+        for down in [true, false] {
+            try verifyTarget()
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: down) else {
+                throw RunFailure.blocked("modifier event unavailable")
+            }
+            event.type = .flagsChanged
+            event.flags = down ? .maskShift : []
+            event.postToPid(pid)
+        }
+    }
+
     func typeLetters(_ keys: [UInt16]) throws {
+        let initialCount = try evidence().count(.key, from: .ime)
         for (index, key) in keys.enumerated() {
             try send(key)
             try wait("key \(index + 1) reached IMK", failure: .blocked("key delivery stopped at \(index)")) {
-                $0.count(.key, from: .ime) >= index + 1
+                $0.count(.key, from: .ime) >= initialCount + index + 1
             }
         }
     }
@@ -103,11 +120,80 @@ final class RunDriver {
             throw RunFailure.blocked("missing permission to post keyboard events")
         }
         switch run.scenario {
+        case "direction-switch", "direction-selection":
+            try commitNihao()
+            try typeLetters(PinyinCommit.letters)
+            try wait("second composition present", failure: .failed("pre-switch mark missing")) {
+                $0.count(.switchPending, from: .host) == 1
+            }
+            try Self.debugSettings.update { $0.translationDirection = .englishToChinese }
+            try wait("active Debug session applied direction", failure: .blocked("direction change not observed")) {
+                $0.count(.directionApplied, from: .ime) == 1
+            }
+            if run.scenario == "direction-selection" {
+                try checkDocument()
+                return
+            }
+            try wait("direction switch cancelled only the mark", failure: .failed("mark or committed prefix changed")) {
+                $0.count(.markEnded, from: .host) == 1
+            }
+            let keysBeforeEnglish = try evidence().count(.key, from: .ime)
+            try send(UInt16(kVK_ANSI_A), flags: .maskShift)
+            try wait("capital letter reached IMK", failure: .blocked("English key delivery stopped")) {
+                $0.count(.key, from: .ime) == keysBeforeEnglish + 1
+            }
+            try typeLetters([UInt16(kVK_Space), UInt16(kVK_ANSI_2)])
+            try wait("English characters inserted", failure: .failed("English input was not committed")) {
+                $0.count(.inserted, from: .host) == 4
+            }
+            try checkDocument()
+        case "candidate-tenth":
+            try typeLetters([UInt16(kVK_ANSI_S), UInt16(kVK_ANSI_H), UInt16(kVK_ANSI_I)])
+            try send(UInt16(kVK_ANSI_0))
+            try wait("tenth candidate committed", failure: .failed("tenth selection missing")) {
+                $0.count(.inserted, from: .host) == 1
+            }
+            try checkDocument()
+        case "shift-toggle", "shift-toggle-live", "shift-toggle-idle":
+            if run.scenario != "shift-toggle-idle" {
+                try typeLetters([UInt16(kVK_ANSI_N)])
+                try wait("initial pinyin mark", failure: .failed("missing initial composition")) { $0.count(.marked, from: .host) > 0 }
+            }
+            if run.scenario == "shift-toggle-live" {
+                try Self.debugSettings.update { $0.shiftTogglesEnglish = true }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+            }
+            guard AXIsProcessTrusted() else { throw RunFailure.blocked("mode feedback requires accessibility permission") }
+            let ime = NSRunningApplication.runningApplications(withBundleIdentifier: TraceRun.imeID)
+            guard ime.count == 1, let pid = ime.first?.processIdentifier else { throw RunFailure.blocked("installed Debug unavailable") }
+            try Self.tapShift(to: host.processIdentifier, verifyTarget: requireFocusedHost)
+            try wait("English mode indicator", timeout: 2, failure: .failed("English mode feedback missing")) { _ in
+                ExternalHost.panelValue(pid: pid)?.contains("临时英文") == true
+            }
+            try typeLetters([UInt16(kVK_ANSI_X)])
+            try wait("temporary English committed", failure: .failed("Shift did not enable direct input")) {
+                $0.count(.inserted, from: .host) > 0
+            }
+            try Self.tapShift(to: host.processIdentifier, key: UInt16(kVK_RightShift), verifyTarget: requireFocusedHost)
+            try wait("Chinese mode indicator", timeout: 2, failure: .failed("Chinese mode feedback missing")) { _ in
+                ExternalHost.panelValue(pid: pid)?.contains("中文拼音") == true
+            }
+            try typeLetters(PinyinCommit.letters)
+            try send(PinyinCommit.confirm)
+            try checkDocument()
+        case "raw-return":
+            try composeNihao()
+            try send(UInt16(kVK_Return))
+            try wait("Return committed once", failure: .failed("raw commit missing")) {
+                $0.count(.inserted, from: .host) == 1
+            }
+            try checkDocument()
         case "composition-caret": try compositionEditing()
         case "punctuation-preview": try punctuationPreview()
+        case "ascii-comma-context", "mixed-period-replace": try mixedPunctuation()
         case "panel-host-exit", "panel-mark-ended", "panel-editor-cleared", "panel-app-switch": try panelLifecycle()
-        case "candidate-click": try candidateSelection()
-        case "translation-undo": try translationReplacement()
+        case "candidate-click", "candidate-tenth-click": try candidateSelection()
+        case "translation-undo", "english-undo": try translationReplacement()
         default: try pinyinCommit()
         }
     }
@@ -139,13 +225,13 @@ private func launchHost(tools: URL, run: TraceRun) throws -> NSRunningApplicatio
 @MainActor
 func execute() throws {
     let args = Array(CommandLine.arguments.dropFirst())
-    guard args.count == 2 || args.count == 3, args[0] == "--case", ["pinyin-commit", "composition-caret", "punctuation-preview", "translation-undo", "candidate-click", "panel-host-exit", "panel-mark-ended", "panel-editor-cleared", "panel-app-switch"].contains(args[1]) || ExternalHost.cases.contains(args[1]),
+    guard args.count == 2 || args.count == 3, args[0] == "--case", ["pinyin-commit", "candidate-tenth", "candidate-tenth-click", "direction-switch", "direction-selection", "english-undo", "shift-toggle", "shift-toggle-live", "shift-toggle-idle", "raw-return", "composition-caret", "punctuation-preview", "ascii-comma-context", "mixed-period-replace", "translation-undo", "candidate-click", "panel-host-exit", "panel-mark-ended", "panel-editor-cleared", "panel-app-switch"].contains(args[1]) || ExternalHost.cases.contains(args[1]),
           args.count == 2 || args[2] == "--manual" else {
         throw RunFailure.blocked("usage: IMERunner --case pinyin-commit [--manual]")
     }
     let manual = args.contains("--manual")
     let external = ExternalHost.cases.contains(args[1])
-    guard !manual || external || args[1] == "pinyin-commit" || args[1] == "candidate-click" else {
+    guard !manual || (external && args[1] != "codex-shift") || args[1] == "pinyin-commit" || args[1] == "candidate-click" else {
         throw RunFailure.blocked("manual input is supported for pinyin-commit, candidate-click and external hosts")
     }
     guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
@@ -171,6 +257,52 @@ func execute() throws {
     guard lock >= 0 else { throw RunFailure.blocked("cannot open run lock") }
     defer { close(lock) }
     guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { throw RunFailure.blocked("another run is active") }
+    // Only these explicit scenarios modify a Debug preference; preserve unrelated user settings.
+    let store = RunDriver.debugSettings
+    let previous = store.read()
+    if ["direction-switch", "direction-selection"].contains(run.scenario), previous.translationDirection != .chineseToEnglish {
+        throw RunFailure.blocked("start the direction-switch test in Chinese to English mode")
+    }
+    if ["shift-toggle", "shift-toggle-live", "shift-toggle-idle", "codex-shift"].contains(run.scenario) {
+        try store.update {
+            $0.shiftTogglesEnglish = run.scenario != "shift-toggle-live"
+            $0.translationDirection = .chineseToEnglish
+        }
+    }
+    let punctuationCase = ["ascii-comma-context", "mixed-period-replace"].contains(run.scenario)
+    if punctuationCase {
+        try store.update {
+            $0.translationDirection = .chineseToEnglish
+            $0.usesASCIIPunctuation = true
+            $0.shiftTogglesEnglish = true
+        }
+    }
+    if run.scenario == "english-undo" {
+        try store.update { $0.translationDirection = .englishToChinese }
+    }
+    if ["candidate-tenth", "candidate-tenth-click"].contains(run.scenario) {
+        try store.update { $0.candidatePageSize = 10 }
+    }
+    defer {
+        do {
+            if punctuationCase {
+                try store.update {
+                    if $0.translationDirection == .chineseToEnglish { $0.translationDirection = previous.translationDirection }
+                    if $0.usesASCIIPunctuation { $0.usesASCIIPunctuation = previous.usesASCIIPunctuation }
+                    if $0.shiftTogglesEnglish { $0.shiftTogglesEnglish = previous.shiftTogglesEnglish }
+                }
+            } else if ["candidate-tenth", "candidate-tenth-click"].contains(run.scenario) {
+                try store.update { if $0.candidatePageSize == 10 { $0.candidatePageSize = previous.candidatePageSize } }
+            } else if ["shift-toggle", "shift-toggle-live", "shift-toggle-idle", "codex-shift"].contains(run.scenario) {
+                try store.update {
+                    $0.shiftTogglesEnglish = previous.shiftTogglesEnglish
+                    $0.translationDirection = previous.translationDirection
+                }
+            } else if ["direction-switch", "direction-selection", "english-undo"].contains(run.scenario) {
+                try store.update { $0.translationDirection = previous.translationDirection }
+            }
+        } catch { fputs("Unable to restore the Debug input preference.\n", stderr) }
+    }
     if !external { try JSONEncoder().encode(run).write(to: TraceRun.active, options: .atomic) }
     defer { try? fm.removeItem(at: TraceRun.active) }
     let original = TISCopyCurrentKeyboardInputSource().takeRetainedValue()

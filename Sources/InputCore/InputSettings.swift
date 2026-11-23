@@ -41,6 +41,47 @@ public struct InputSettings: Equatable, Sendable {
         }
     }
 
+    public enum PreviewOverride: String, CaseIterable, Sendable {
+        case followGlobal, enabled, disabled
+
+        public var label: String {
+            switch self {
+            case .followGlobal: "跟随全局"
+            case .enabled: "开启预览"
+            case .disabled: "关闭预览"
+            }
+        }
+    }
+
+    public enum PagingKeys: String, CaseIterable, Sendable {
+        case standard, brackets
+
+        public var label: String {
+            switch self {
+            case .standard: "Page Up / Down、- / ="
+            case .brackets: "标准键及 [ / ]"
+            }
+        }
+    }
+
+    public var pinyinLayout = PinyinLayout.full
+    public var fuzzyInitials: Set<FuzzyInitial> = []
+    public var learnsWords = true
+    public var candidatePageSize = 5
+    public var translationDirection = TranslationDirection.chineseToEnglish
+    public var appPreviewOverrides: [String: PreviewOverride] = [:]
+    public var shiftTogglesEnglish = false
+    public var usesASCIIPunctuation = false
+    public var pagingKeys = PagingKeys.standard
+
+    public func previewEnabled(for bundleID: String?) -> Bool {
+        switch bundleID.flatMap({ appPreviewOverrides[$0] }) ?? .followGlobal {
+        case .followGlobal: translationEnabled
+        case .enabled: true
+        case .disabled: false
+        }
+    }
+
     public var translationEnabled = true
     public var speed = Speed.balanced
     public var previewLayout = PreviewLayout.standard
@@ -100,8 +141,21 @@ public struct InputSettingsStore: Sendable {
         if !SentenceReplacementShortcut.supports(keyCode: settings.replacementKeyCode) {
             settings.replacementKeyCode = previous.replacementKeyCode
         }
+        if !(5...10).contains(settings.candidatePageSize) { settings.candidatePageSize = previous.candidatePageSize }
+        settings.appPreviewOverrides = settings.appPreviewOverrides.filter { !$0.key.isEmpty && $0.value != .followGlobal }
         guard settings != previous else { return }
         fields["version"] = max(fields["version"] as? Int ?? 0, Self.version)
+        if settings.pinyinLayout != previous.pinyinLayout { fields["pinyinLayout"] = settings.pinyinLayout.rawValue }
+        if settings.fuzzyInitials != previous.fuzzyInitials { fields["fuzzyInitials"] = settings.fuzzyInitials.map(\.rawValue).sorted() }
+        if settings.learnsWords != previous.learnsWords { fields["learnsWords"] = settings.learnsWords }
+        if settings.candidatePageSize != previous.candidatePageSize { fields["candidatePageSize"] = settings.candidatePageSize }
+        if settings.translationDirection != previous.translationDirection { fields["translationDirection"] = settings.translationDirection.rawValue }
+        if settings.pagingKeys != previous.pagingKeys { fields["pagingKeys"] = settings.pagingKeys.rawValue }
+        if settings.shiftTogglesEnglish != previous.shiftTogglesEnglish { fields["shiftTogglesEnglish"] = settings.shiftTogglesEnglish }
+        if settings.usesASCIIPunctuation != previous.usesASCIIPunctuation { fields["usesASCIIPunctuation"] = settings.usesASCIIPunctuation }
+        if settings.appPreviewOverrides != previous.appPreviewOverrides {
+            fields["appPreviewOverrides"] = settings.appPreviewOverrides.mapValues(\.rawValue)
+        }
         if settings.translationEnabled != previous.translationEnabled {
             fields["translationEnabled"] = settings.translationEnabled
         }
@@ -128,6 +182,31 @@ public struct InputSettingsStore: Sendable {
     private func decode(_ fields: [String: Any]) -> InputSettings {
         // Unversioned and v0 use the same field names. Read known fields from newer files and preserve extras.
         var settings = InputSettings()
+        if let raw = fields["pinyinLayout"] as? String, let layout = PinyinLayout(rawValue: raw) {
+            settings.pinyinLayout = layout
+        }
+        if let raw = fields["fuzzyInitials"] as? [String] { settings.fuzzyInitials = Set(raw.compactMap(FuzzyInitial.init(rawValue:))) }
+        if let flag = fields["learnsWords"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() {
+            settings.learnsWords = flag.boolValue
+        }
+        if let size = fields["candidatePageSize"] as? NSNumber, (5...10).contains(size.intValue),
+           size.doubleValue == Double(size.intValue) { settings.candidatePageSize = size.intValue }
+        if let raw = fields["translationDirection"] as? String, let direction = TranslationDirection(rawValue: raw) {
+            settings.translationDirection = direction
+        }
+        if let raw = fields["pagingKeys"] as? String, let keys = InputSettings.PagingKeys(rawValue: raw) {
+            settings.pagingKeys = keys
+        }
+        if let raw = fields["appPreviewOverrides"] as? [String: Any] {
+            settings.appPreviewOverrides = raw.compactMapValues { ($0 as? String).flatMap(InputSettings.PreviewOverride.init(rawValue:)) }
+                .filter { !$0.key.isEmpty && $0.value != .followGlobal }
+        }
+        if let flag = fields["shiftTogglesEnglish"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() {
+            settings.shiftTogglesEnglish = flag.boolValue
+        }
+        if let flag = fields["usesASCIIPunctuation"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() {
+            settings.usesASCIIPunctuation = flag.boolValue
+        }
         if let value = fields["translationEnabled"] as? NSNumber,
            CFGetTypeID(value) == CFBooleanGetTypeID() {
             settings.translationEnabled = value.boolValue

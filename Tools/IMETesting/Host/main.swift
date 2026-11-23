@@ -19,8 +19,18 @@ final class TestTextView: NSTextView {
         if allowCapture {
             trace?.record(.inserted)
             let inserted = (string as? NSAttributedString)?.string ?? string as? String
-            if trace?.run.scenario == "translation-undo", inserted == self.string, !hasMarkedText(),
-               self.string.rangeOfCharacter(from: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) != nil {
+            let translatedLanguageMatches: Bool
+            switch trace?.run.scenario {
+            case "translation-undo":
+                translatedLanguageMatches = self.string.rangeOfCharacter(from: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) != nil
+            case "english-undo":
+                translatedLanguageMatches = self.string.unicodeScalars.contains { (0x3400...0x9fff).contains($0.value) }
+            default: translatedLanguageMatches = false
+            }
+            let mixedReplacement = trace?.run.scenario == "mixed-period-replace"
+                && inserted?.rangeOfCharacter(from: .letters) != nil && inserted != "你好"
+                && self.string == "x. " + (inserted ?? "")
+            if ((translatedLanguageMatches && inserted == self.string) || mixedReplacement), !hasMarkedText() {
                 translated = true
                 trace?.record(.translatedDocument)
             }
@@ -72,6 +82,8 @@ final class HostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(view)
         NSApp.activate(ignoringOtherApps: true)
+        var switchPending = false
+        var switchObserved = false
         var checked = false
         var expectedEditedLetters: String?
         var editedInMiddle = false
@@ -107,7 +119,27 @@ final class HostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     if run.scenario == "panel-editor-cleared" { view.string = "" }
                     if !view.hasMarkedText() { view.trace?.record(.markEnded) }
                 }
-                if view.translated && view.string == "你好" && !view.hasMarkedText() {
+                if ["direction-switch", "direction-selection"].contains(run.scenario) {
+                    if !switchPending, view.hasMarkedText(), view.string.hasPrefix("你好"),
+                       view.string.filter({ $0.isASCII && $0.isLetter }) == "nihao" {
+                        if run.scenario == "direction-selection" {
+                            view.unmarkText()
+                            view.string = "保留前文"
+                            view.setSelectedRange(NSRange(location: 1, length: 2))
+                        }
+                        switchPending = true
+                        view.trace?.record(.switchPending)
+                    } else if switchPending, !switchObserved, !view.hasMarkedText(), view.string == "你好" {
+                        switchObserved = true
+                        view.trace?.record(.markEnded)
+                    }
+                }
+                let undoText = switch run.scenario {
+                case "english-undo": "hello"
+                case "mixed-period-replace": "x. 你好"
+                default: "你好"
+                }
+                if view.translated && view.string == undoText && !view.hasMarkedText() {
                     view.translated = false
                     view.trace?.record(.undoRestored)
                 }
@@ -135,6 +167,22 @@ final class HostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                             let document = view.string as NSString
                             expectedEditedLetters = document.replacingCharacters(in: caret, with: "g").filter { $0.isLetter }
                         }
+                    case "direction-selection":
+                        ok = view.string == "保留前文" && view.selectedRange() == NSRange(location: 1, length: 2)
+                    case "direction-switch":
+                        ok = switchObserved && !view.hasMarkedText() && view.string == "你好A 2"
+                    case "candidate-tenth", "candidate-tenth-click":
+                        ok = !view.hasMarkedText() && view.string == "室"
+                    case "english-undo":
+                        ok = !view.hasMarkedText() && view.string == "hello"
+                    case "shift-toggle", "shift-toggle-live", "shift-toggle-idle":
+                        ok = !view.hasMarkedText() && view.string == "x你好"
+                    case "raw-return":
+                        ok = !view.hasMarkedText() && view.string == "nihao"
+                    case "ascii-comma-context":
+                        ok = !view.hasMarkedText() && view.string == "你好,你好"
+                    case "mixed-period-replace":
+                        ok = !view.hasMarkedText() && view.string == undoText
                     case "punctuation-preview":
                         ok = !view.hasMarkedText() && view.string == "。"
                     default:

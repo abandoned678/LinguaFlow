@@ -59,6 +59,14 @@ struct InputCoreChecks {
         try expect(decimalBuffer.append("14元")?.text, "价格3.14元", "ASCII dot does not end a Chinese sentence")
         _ = decimalBuffer.append("\n")
         try expect(decimalBuffer.append("新行")?.text, "新行", "confirmed newline ends the sentence")
+        var mixedInput = CommittedSentenceBuffer()
+        _ = mixedInput.append("查看 example.org 与 v3.14,使用 API.")
+        try expect(mixedInput.currentSnapshot?.text, "查看 example.org 与 v3.14,使用 API.", "retain ASCII tokens and comma in mixed input")
+        try expect(mixedInput.currentSnapshot?.isFinal, true, "temporary English period closes the current Chinese sentence")
+        _ = mixedInput.append(" ")
+        try expect(mixedInput.append("下一句")?.text, "下一句", "mixed input replacement excludes the preceding sentence")
+        _ = mixedInput.append(".")
+        try expect(mixedInput.append("再来")?.text, "再来", "a Chinese sentence after a dot needs no separating space")
         var reopened = CommittedSentenceBuffer(maxCharacters: 80)
         _ = reopened.append("你好。！")
         try expect(reopened.removeLastCharacter()?.isFinal, true, "backspace leaves the preceding sentence ending")
@@ -313,6 +321,14 @@ struct InputCoreChecks {
         )
         try expect(compactSize.width, 166, "short content stays compact")
         try expect(compactSize.height, 82, "three rows use stable spacing")
+
+        let sevenWithArrows: [CGFloat] = [110, 82, 75, 64, 62, 61, 59, 24, 24]
+        try expect(UnifiedPanelLayout.candidateWidths(sevenWithArrows, available: 700),
+                   sevenWithArrows, "seven candidates retain their full titles on a wide screen")
+        try expect(UnifiedPanelLayout.size(contentWidths: [610], rowHeights: [23], widthLimit: 800).width,
+                   620, "candidate panel expands beyond the translation-only width")
+        try expect(UnifiedPanelLayout.candidateWidths([170, 80, 35, 24, 24], available: 203),
+                   [60, 60, 35, 24, 24], "long titles shrink first; short candidates and arrows remain visible")
 
         let below = UnifiedPanelLayout.origin(
             anchor: .init(x: 480, y: 420, width: 0, height: 22),

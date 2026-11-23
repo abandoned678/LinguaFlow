@@ -22,9 +22,13 @@ public struct CommittedSentenceBuffer: Sendable {
     private var text = ""
     private var isOverlong = false
     private var startsNewSentenceOnNextAppend = false
+    private var adjacentToEnglishPeriod = false
+    // Sentence-separating spaces are in the document but outside the preview's text.
+    private var trailingSeparators = ""
+    public var lastTrackedCharacter: Character? { trailingSeparators.last ?? text.last }
     private var lastSnapshot: SentenceSnapshot?
 
-    public init(maxCharacters: Int = 280, periodEndsSentence: Bool = false) {
+    public init(maxCharacters: Int = 280, periodEndsSentence: Bool = true) {
         precondition(maxCharacters > 0, "maxCharacters must be greater than zero")
         self.maxCharacters = maxCharacters
         self.periodEndsSentence = periodEndsSentence
@@ -44,6 +48,8 @@ public struct CommittedSentenceBuffer: Sendable {
         var changed = false
         for character in committedText {
             if character.isNewline {
+                trailingSeparators.removeAll(keepingCapacity: true)
+                adjacentToEnglishPeriod = false
                 if !text.isEmpty, !startsNewSentenceOnNextAppend {
                     startsNewSentenceOnNextAppend = true
                     changed = true
@@ -51,10 +57,17 @@ public struct CommittedSentenceBuffer: Sendable {
                 continue
             }
             if character.isWhitespace, text.isEmpty || startsNewSentenceOnNextAppend {
+                adjacentToEnglishPeriod = false
+                if periodEndsSentence && !text.isEmpty {
+                    trailingSeparators.append(character)
+                    if trailingSeparators.count > maxCharacters { reset(); changed = false }
+                }
                 continue
             }
-            let terminal = isTerminal(character)
-            if startsNewSentenceOnNextAppend, !terminal {
+            let wasSeparated = !trailingSeparators.isEmpty
+            trailingSeparators.removeAll(keepingCapacity: true)
+            let continuesToken = adjacentToEnglishPeriod && Self.isASCIITokenCharacter(character)
+            if startsNewSentenceOnNextAppend, !continuesToken, wasSeparated || !isTerminalPunctuation(character) {
                 text.removeAll(keepingCapacity: true)
                 isOverlong = false
             }
@@ -64,7 +77,7 @@ public struct CommittedSentenceBuffer: Sendable {
                 text.removeFirst()
             }
             changed = true
-            startsNewSentenceOnNextAppend = terminal
+            updateBoundary()
         }
         guard changed else { return nil }
 
@@ -102,7 +115,8 @@ public struct CommittedSentenceBuffer: Sendable {
             return nil
         }
 
-        let isFinal = text.last.map(isTerminal) ?? false
+        updateBoundary()
+        let isFinal = startsNewSentenceOnNextAppend
         let snapshot = SentenceSnapshot(text: text, revision: revision, isFinal: isFinal, isOverlong: isOverlong)
         lastSnapshot = snapshot
         startsNewSentenceOnNextAppend = isFinal
@@ -113,8 +127,13 @@ public struct CommittedSentenceBuffer: Sendable {
     public mutating func removeLastCharacter() -> SentenceSnapshot? {
         guard !text.isEmpty else { return nil }
 
+        if !trailingSeparators.isEmpty {
+            trailingSeparators.removeLast()
+            if trailingSeparators.isEmpty { updateBoundary() }
+            return lastSnapshot
+        }
         text.removeLast()
-        startsNewSentenceOnNextAppend = text.last.map(isTerminal) ?? false
+        updateBoundary()
         revision &+= 1
 
         guard !text.isEmpty else {
@@ -134,13 +153,34 @@ public struct CommittedSentenceBuffer: Sendable {
 
     public mutating func reset() {
         text.removeAll(keepingCapacity: false)
+        trailingSeparators.removeAll(keepingCapacity: false)
         isOverlong = false
         startsNewSentenceOnNextAppend = false
         lastSnapshot = nil
+        adjacentToEnglishPeriod = false
         revision &+= 1
     }
 
-    private func isTerminal(_ character: Character) -> Bool {
+    private mutating func updateBoundary() {
+        startsNewSentenceOnNextAppend = text.last.map(isTerminalPunctuation) ?? false
+        adjacentToEnglishPeriod = false
+        guard periodEndsSentence, text.last == "." else { return }
+        // Rejoin a dot inside an ASCII token (e.g. a version or domain), but
+        // start fresh when the user resumes Chinese after an English sentence.
+        adjacentToEnglishPeriod = text.dropLast().last.map(Self.isASCIITokenCharacter) ?? false
+        let word = String(text.reversed().prefix { ($0.isASCII && $0.isLetter) || $0 == "." }.reversed()).lowercased()
+        let parts = word.dropLast().split(separator: ".")
+        let initials = parts.count >= 2 && parts.allSatisfy { $0.count == 1 }
+        if initials || ["mr.", "mrs.", "ms.", "dr.", "prof.", "vs.", "etc."].contains(word) {
+            startsNewSentenceOnNextAppend = false
+        }
+    }
+
+    private static func isASCIITokenCharacter(_ character: Character) -> Bool {
+        character.isASCII && (character.isLetter || character.isNumber)
+    }
+
+    private func isTerminalPunctuation(_ character: Character) -> Bool {
         "。！？!?".contains(character) || (periodEndsSentence && character == ".")
     }
 }

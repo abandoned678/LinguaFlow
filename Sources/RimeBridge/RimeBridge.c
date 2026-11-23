@@ -163,6 +163,10 @@ int lf_rime_session_commit_composition(LFRimeSession *session) {
         : 0;
 }
 
+void lf_rime_session_set_ascii_punctuation(LFRimeSession *session, int enabled) {
+    if (session && g_api) g_api->set_option(session->identifier, "ascii_punct", enabled != 0);
+}
+
 void lf_rime_session_clear(LFRimeSession *session) {
     if (session && g_api) {
         g_api->clear_composition(session->identifier);
@@ -197,7 +201,51 @@ void lf_rime_snapshot_free(LFRimeSnapshot *snapshot) {
     *snapshot = (LFRimeSnapshot){0};
 }
 
-int lf_rime_session_copy_snapshot(LFRimeSession *session, LFRimeSnapshot *snapshot) {
+static int copy_candidate(LFRimeCandidate *copy, const RimeCandidate *candidate) {
+    copy->text = copy_string(candidate->text);
+    copy->comment = copy_string(candidate->comment);
+    return (!candidate->text || !candidate->text[0] || copy->text) &&
+           (!candidate->comment || !candidate->comment[0] || copy->comment);
+}
+
+// The API exposes the current schema page and an iterator over all candidates.
+// Use the native page directly when possible, otherwise project the same list
+// into a session-local page without redeploying shared schema or dictionary data.
+static int copy_menu(RimeSessionId id, const RimeMenu *menu, int size, LFRimeSnapshot *snapshot) {
+    if (menu->num_candidates <= 0) {
+        snapshot->is_last_page = 1;
+        return 1;
+    }
+    if (size < 5 || size > 10 || menu->page_size <= 0) return 0;
+    snapshot->candidates = calloc((size_t)size, sizeof(LFRimeCandidate));
+    if (!snapshot->candidates) return 0;
+    int selected = menu->page_no * menu->page_size + menu->highlighted_candidate_index;
+    snapshot->page_number = selected / size;
+    snapshot->highlighted_index = selected % size;
+    if (size == menu->page_size) {
+        snapshot->is_last_page = menu->is_last_page;
+        for (int i = 0; i < menu->num_candidates && i < size; ++i) {
+            snapshot->count++;
+            if (!copy_candidate(&snapshot->candidates[i], &menu->candidates[i])) return 0;
+        }
+        return 1;
+    }
+    RimeCandidateListIterator iterator = {0};
+    if (!g_api->candidate_list_from_index(id, &iterator, snapshot->page_number * size)) return 0;
+    int success = 1;
+    while (snapshot->count < size && g_api->candidate_list_next(&iterator)) {
+        LFRimeCandidate *item = &snapshot->candidates[snapshot->count++];
+        if (!copy_candidate(item, &iterator.candidate)) {
+            success = 0;
+            break;
+        }
+    }
+    snapshot->is_last_page = snapshot->count < size || !g_api->candidate_list_next(&iterator);
+    g_api->candidate_list_end(&iterator);
+    return success;
+}
+
+int lf_rime_session_copy_snapshot(LFRimeSession *session, int page_size, LFRimeSnapshot *snapshot) {
     if (!snapshot) {
         return 0;
     }
@@ -220,29 +268,7 @@ int lf_rime_session_copy_snapshot(LFRimeSession *session, LFRimeSnapshot *snapsh
         goto end;
     }
 
-    const int count = context.menu.num_candidates;
-    if (count > 0) {
-        snapshot->candidates = calloc((size_t)count, sizeof(LFRimeCandidate));
-        if (!snapshot->candidates) {
-            set_error("Unable to allocate Rime candidates");
-            goto end;
-        }
-        snapshot->count = count;
-        for (int index = 0; index < count; ++index) {
-            const RimeCandidate *candidate = &context.menu.candidates[index];
-            LFRimeCandidate *copy = &snapshot->candidates[index];
-            copy->text = copy_string(candidate->text);
-            copy->comment = copy_string(candidate->comment);
-            if ((candidate->text && candidate->text[0] && !copy->text)
-                || (candidate->comment && candidate->comment[0] && !copy->comment)) {
-                goto end;
-            }
-        }
-    }
-    snapshot->highlighted_index = context.menu.highlighted_candidate_index;
-    snapshot->page_number = context.menu.page_no;
-    snapshot->is_last_page = context.menu.is_last_page;
-    success = 1;
+    success = copy_menu(session->identifier, &context.menu, page_size, snapshot);
 
 end:
     g_api->free_context(&context);
@@ -254,18 +280,21 @@ end:
 
 int lf_rime_session_select_candidate(LFRimeSession *session, int index) {
     return session && g_api && index >= 0
-        ? g_api->select_candidate_on_current_page(session->identifier, (size_t)index)
+        ? g_api->select_candidate(session->identifier, (size_t)index)
         : 0;
 }
 
-int lf_rime_session_change_page(LFRimeSession *session, int backward) {
-    if (!session || !g_api) {
-        return 0;
-    }
-    if (RIME_API_AVAILABLE(g_api, change_page)) {
-        return g_api->change_page(session->identifier, backward != 0);
-    }
-    return g_api->process_key(session->identifier, backward ? LF_RIME_KEY_PAGE_UP : LF_RIME_KEY_PAGE_DOWN, 0);
+int lf_rime_session_highlight_candidate(LFRimeSession *session, int index) {
+    return session && g_api && index >= 0 && RIME_API_AVAILABLE(g_api, highlight_candidate)
+        ? g_api->highlight_candidate(session->identifier, (size_t)index)
+        : 0;
+}
+
+char *lf_rime_session_take_raw_input(LFRimeSession *session) {
+    if (!session || !g_api) return NULL;
+    char *raw = copy_string(g_api->get_input(session->identifier));
+    if (raw) g_api->clear_composition(session->identifier);
+    return raw;
 }
 
 void lf_rime_string_free(char *value) {

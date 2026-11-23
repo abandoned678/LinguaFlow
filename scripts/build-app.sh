@@ -66,8 +66,9 @@ if [[ "$configuration" == debug ]]; then
   plutil -replace CFBundleURLTypes.0.CFBundleURLSchemes.0 -string sentencealong-debug-settings "$helper_bundle/Contents/Info.plist"
   # Deploy the synthetic schema as a dependency, outside the user's schema list.
   cp "$project_dir/Tools/IMETesting/Rime/sentencealong_fixture.schema.yaml" "$app_bundle/Contents/Resources/Rime/"
-  print -r -- 'patch:
-  schema/dependencies/+: [sentencealong_fixture]' > "$app_bundle/Contents/Resources/Rime/luna_pinyin_simp.custom.yaml"
+  /usr/bin/ruby -ryaml -e 'file = ARGV.fetch(0); config = YAML.load_file(file)
+    config.fetch("patch").fetch("schema/dependencies/+") << "sentencealong_fixture"
+    File.write(file, YAML.dump(config))' "$app_bundle/Contents/Resources/Rime/luna_pinyin_simp.custom.yaml"
 fi
 cp "$binary_dir/TranslationSetup" "$helper_bundle/Contents/MacOS/SentenceAlongSetup"
 

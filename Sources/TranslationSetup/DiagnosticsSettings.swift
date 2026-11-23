@@ -39,6 +39,15 @@ struct DiagnosticsSettings: View {
             }
         }
 
+        Section("本地数据") {
+            let directory = InputSettingsStore.shared.preferencesURL.deletingLastPathComponent()
+            LabeledContent("输入法数据目录") {
+                Text(directory.path(percentEncoded: false))
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+        }
+
         Section("诊断") {
             LabeledContent("拼音引擎（最近报告）", value: engineHealth?.state.label ?? "尚无状态")
             if engineHealth?.state.isFailure == true {

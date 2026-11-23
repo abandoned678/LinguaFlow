@@ -59,6 +59,8 @@ cp "$project_dir/Vendor/rime-prelude"/*.yaml "$destination/"
 cp "$project_dir/Vendor/rime-luna-pinyin"/*.yaml "$destination/"
 cp "$project_dir/Vendor/rime-essay/essay.txt" "$destination/essay.txt"
 cp "$project_dir/Resources/Rime/default.custom.yaml" "$destination/default.custom.yaml"
+cat "$project_dir/Resources/Rime/technical-words.tsv" >> "$destination/luna_pinyin.dict.yaml"
+/usr/bin/ruby "$project_dir/scripts/prepare-pinyin-profiles.rb" "$destination"
 for resource in "${opencc_resources[@]}"; do
   cp "$opencc_data_directory/$resource" "$destination/opencc/$resource"
 done

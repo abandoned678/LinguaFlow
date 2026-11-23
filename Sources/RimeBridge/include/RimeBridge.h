@@ -45,12 +45,14 @@ int lf_rime_session_select_schema(LFRimeSession *session, const char *schema_id)
 int lf_rime_session_process_key(LFRimeSession *session, int keycode, int modifiers);
 int lf_rime_session_commit_composition(LFRimeSession *session);
 void lf_rime_session_clear(LFRimeSession *session);
+void lf_rime_session_set_ascii_punctuation(LFRimeSession *session, int enabled);
 
 char *lf_rime_session_take_commit(LFRimeSession *session);
-int lf_rime_session_copy_snapshot(LFRimeSession *session, LFRimeSnapshot *snapshot);
+int lf_rime_session_copy_snapshot(LFRimeSession *session, int page_size, LFRimeSnapshot *snapshot);
+char *lf_rime_session_take_raw_input(LFRimeSession *session);
+int lf_rime_session_highlight_candidate(LFRimeSession *session, int absolute_index);
 void lf_rime_snapshot_free(LFRimeSnapshot *snapshot);
 int lf_rime_session_select_candidate(LFRimeSession *session, int index);
-int lf_rime_session_change_page(LFRimeSession *session, int backward);
 
 void lf_rime_string_free(char *value);
 

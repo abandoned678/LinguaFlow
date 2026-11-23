@@ -15,6 +15,10 @@ public enum SentenceReplacementShortcut {
 
     public static func supports(keyCode: UInt16) -> Bool { letters[keyCode] != nil }
 
+    public static func keyEquivalent(for keyCode: UInt16) -> String {
+        (letters[keyCode] ?? "T").lowercased()
+    }
+
     public static func label(for keyCode: UInt16) -> String {
         "⌃⇧" + (letters[keyCode] ?? "T")
     }

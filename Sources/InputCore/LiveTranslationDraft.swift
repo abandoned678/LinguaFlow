@@ -42,14 +42,28 @@ public enum UnifiedPanelLayout {
 
     public static func size(
         contentWidths: [CGFloat],
-        rowHeights: [CGFloat]
+        rowHeights: [CGFloat],
+        widthLimit: CGFloat = maximumWidth
     ) -> CGSize {
         let measuredWidth = (contentWidths.max() ?? 0) + horizontalPadding * 2
-        let width = min(max(measuredWidth, minimumWidth), maximumWidth)
+        let width = min(max(measuredWidth, minimumWidth), widthLimit)
         let rowsHeight = rowHeights.reduce(0, +)
         let spacing = CGFloat(max(0, rowHeights.count - 1)) * rowSpacing
         let height = rowsHeight + spacing + verticalPadding * 2
         return CGSize(width: ceil(width), height: ceil(height))
+    }
+
+    /// Keep short titles and page controls at their intrinsic width. Share the
+    /// remaining space between longer titles so each candidate keeps its number.
+    public static func candidateWidths(_ natural: [CGFloat], available: CGFloat) -> [CGFloat] {
+        guard natural.reduce(0, +) > available else { return natural }
+        var remaining = max(0, available)
+        for (index, width) in natural.sorted().enumerated() {
+            let share = remaining / CGFloat(natural.count - index)
+            if width >= share { return natural.map { min($0, share) } }
+            remaining -= width
+        }
+        return natural
     }
 
     public static func origin(

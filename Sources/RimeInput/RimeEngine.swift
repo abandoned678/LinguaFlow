@@ -120,8 +120,38 @@ public final class RimeRuntime {
     }
 }
 
+/// A controller keeps the same session while composing. A failed creation can
+/// be retried on reactivation or a new schema without retrying each key.
+@MainActor
+public struct RimeSessionSlot {
+    public private(set) var engine: RimeEngine?
+    private var attemptedSchema: String?
+
+    public init() {}
+
+    public mutating func load(schema: String, reactivated: Bool = false, create: (String) -> RimeEngine?) {
+        guard engine == nil, reactivated || schema != attemptedSchema else { return }
+        attemptedSchema = schema
+        engine = create(schema)
+    }
+}
+
 @MainActor
 public final class RimeEngine {
+    public var candidatePageSize = 5
+    private var activePageSize = 5
+    public private(set) var isComposing = false
+    private var candidateCount = 0
+    private var pageNumber = 0
+    private var isLastPage = true
+    public private(set) var schemaID: String
+    public var usesASCIIPunctuation = false {
+        didSet {
+            if usesASCIIPunctuation != oldValue {
+                lf_rime_session_set_ascii_punctuation(session, usesASCIIPunctuation ? 1 : 0)
+            }
+        }
+    }
     nonisolated(unsafe) private var session: OpaquePointer?
 
     public init(runtime: RimeRuntime, schema: String = "luna_pinyin_simp") throws {
@@ -133,6 +163,18 @@ public final class RimeEngine {
             throw RimeEngineError.schemaUnavailable
         }
         self.session = session
+        self.schemaID = schema
+        lf_rime_session_set_ascii_punctuation(session, 0)
+    }
+
+    @discardableResult
+    public func selectSchema(_ schema: String) -> Bool {
+        guard !isComposing, let session else { return false }
+        if schema == schemaID { return true }
+        guard schema.withCString({ lf_rime_session_select_schema(session, $0) }) != 0 else { return false }
+        schemaID = schema
+        lf_rime_session_set_ascii_punctuation(session, usesASCIIPunctuation ? 1 : 0)
+        return true
     }
 
     deinit {
@@ -145,24 +187,64 @@ public final class RimeEngine {
         guard let session else {
             return .init(consumed: false, preedit: "", candidates: [], highlightedIndex: 0, commit: nil)
         }
+        if !isComposing {
+            activePageSize = min(10, max(5, candidatePageSize))
+        } else if candidateCount > 0, modifiers == 4, keyCode == 118 || keyCode == 121 {
+            // Luna's Control+V/Y bindings otherwise advance by its native five-item page.
+            return changePage(backward: keyCode == 121)
+        } else if modifiers == 0 {
+            if keyCode == RimeKey.return, let raw = takeString(lf_rime_session_take_raw_input(session)) {
+                return snapshot(consumed: true, rawCommit: raw)
+            }
+            if candidateCount > 0 {
+                if (48...57).contains(keyCode) {
+                    let index = Int((keyCode - 49 + 10) % 10)
+                    if index < candidateCount { return selectCandidate(at: index) }
+                    return snapshot(consumed: true)
+                }
+                switch keyCode {
+                case RimeKey.pageDown, 61, 46: return changePage(backward: false)
+                case RimeKey.pageUp, 45: return changePage(backward: true)
+                case 44 where pageNumber > 0: return changePage(backward: true)
+                default: break
+                }
+            }
+        }
+        let wasComposing = isComposing
         let consumed = lf_rime_session_process_key(session, keyCode, modifiers) != 0
-        return snapshot(consumed: consumed)
+        let result = snapshot(consumed: consumed)
+        // In ascii_punct mode Rime passes printable punctuation to the host.
+        // Commit it through the same IME path as a native result so caret and
+        // translation tracking both include the character exactly once.
+        if usesASCIIPunctuation, modifiers == 0, !wasComposing, !consumed,
+           result.preedit.isEmpty, result.candidates.isEmpty, result.commit == nil,
+           (33...126).contains(keyCode), let scalar = Unicode.Scalar(Int(keyCode)),
+           !CharacterSet.alphanumerics.contains(scalar) {
+            return RimeSnapshot(consumed: true, preedit: "", candidates: [], highlightedIndex: 0, commit: String(scalar))
+        }
+        return result
     }
 
     public func selectCandidate(at index: Int) -> RimeSnapshot {
-        guard let session, let index = Int32(exactly: index) else {
-            return .init(consumed: false, preedit: "", candidates: [], highlightedIndex: 0, commit: nil)
-        }
-        let consumed = lf_rime_session_select_candidate(session, index) != 0
-        return snapshot(consumed: consumed)
+        guard let session, (0..<candidateCount).contains(index),
+              let absoluteIndex = Int32(exactly: pageNumber * activePageSize + index)
+        else { return snapshot(consumed: false) }
+        return snapshot(consumed: lf_rime_session_select_candidate(session, absoluteIndex) != 0)
     }
 
     public func changePage(backward: Bool) -> RimeSnapshot {
-        guard let session else { return snapshot(consumed: false) }
-        return snapshot(consumed: lf_rime_session_change_page(session, backward ? 1 : 0) != 0)
+        guard let session, candidateCount > 0 else { return snapshot(consumed: false) }
+        guard backward ? pageNumber > 0 : !isLastPage,
+              let first = Int32(exactly: (pageNumber + (backward ? -1 : 1)) * activePageSize)
+        else { return snapshot(consumed: true) }
+        return snapshot(consumed: lf_rime_session_highlight_candidate(session, first) != 0)
     }
 
     public func clear() {
+        isComposing = false
+        candidateCount = 0
+        pageNumber = 0
+        isLastPage = true
         guard let session else { return }
         lf_rime_session_clear(session)
     }
@@ -175,14 +257,14 @@ public final class RimeEngine {
         return snapshot(consumed: consumed)
     }
 
-    private func snapshot(consumed: Bool) -> RimeSnapshot {
+    private func snapshot(consumed: Bool, rawCommit: String? = nil) -> RimeSnapshot {
         guard let session else {
             return .init(consumed: consumed, preedit: "", candidates: [], highlightedIndex: 0, commit: nil)
         }
 
-        let commit = takeString(lf_rime_session_take_commit(session))
+        let commit = rawCommit ?? takeString(lf_rime_session_take_commit(session))
         var context = LFRimeSnapshot()
-        guard lf_rime_session_copy_snapshot(session, &context) != 0 else {
+        guard lf_rime_session_copy_snapshot(session, Int32(activePageSize), &context) != 0 else {
             return .init(consumed: consumed, preedit: "", candidates: [], highlightedIndex: 0, commit: commit)
         }
         defer { lf_rime_snapshot_free(&context) }
@@ -198,7 +280,7 @@ public final class RimeEngine {
                 ))
             }
         }
-        return RimeSnapshot(
+        let result = RimeSnapshot(
             consumed: consumed,
             preedit: context.preedit.map { String(cString: $0) } ?? "",
             cursorByteOffset: Int(context.cursor_byte_offset),
@@ -208,6 +290,11 @@ public final class RimeEngine {
             pageNumber: max(0, Int(context.page_number)),
             isLastPage: context.is_last_page != 0
         )
+        isComposing = !result.preedit.isEmpty
+        candidateCount = result.candidates.count
+        pageNumber = result.pageNumber
+        isLastPage = result.isLastPage
+        return result
     }
 
     private func takeString(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {

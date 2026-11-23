@@ -5,11 +5,12 @@ import OSLog
 #endif
 
 enum CompositionCommitSource {
-    case imkCallback, hostShortcut, forwardDelete
+    case imkCallback, hostShortcut, forwardDelete, mouseOutside
 }
 
 enum ContextResetReason {
     case secureInput, reactivated, deactivated, controllerClosed, noActiveClient, clientChanged
+    case directionChanged
     case hostShortcut, controlReturn, forwardDelete, englishControl, navigationOrControl
     case replacementSelectionChanged, replacementRangeUnverified, translationReplaced
     case foregroundChangedOnRender, foregroundChangedOnRefresh
@@ -25,6 +26,11 @@ struct DebugCompositionLog {
     private static let log = Logger(
         subsystem: "com.abandoned678.inputmethod.SentenceAlongDebug", category: "CompositionReset"
     )
+
+    func shiftGesture(stage: String) {
+        guard !IsSecureEventInputEnabled() else { return }
+        Self.log.notice("shift stage=\(stage, privacy: .public) controller=\(controllerID.uuidString, privacy: .public)")
+    }
 
     func activated() {
         guard !IsSecureEventInputEnabled() else { return }

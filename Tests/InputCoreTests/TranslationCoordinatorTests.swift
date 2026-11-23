@@ -150,6 +150,10 @@ extension TranslationCoordinatorTests {
             .committedPunctuation
         )
         XCTAssertEqual(
+            TranslationTrigger.compositionUpdate(commit: ".", previousPreedit: "", preedit: "", highlightChanged: false),
+            .committedPunctuation
+        )
+        XCTAssertEqual(
             TranslationTrigger.compositionUpdate(commit: nil, previousPreedit: "ni", preedit: "ni", highlightChanged: true),
             .candidate
         )

@@ -62,7 +62,7 @@ public enum TranslationTrigger: String, Sendable {
         preedit: String,
         highlightChanged: Bool
     ) -> Self {
-        if let last = commit?.last, "。！？!?".contains(last) {
+        if let last = commit?.last, "。！？!?.".contains(last) {
             return .committedPunctuation
         }
         if commit == nil, preedit == previousPreedit, highlightChanged {

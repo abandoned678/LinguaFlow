@@ -6,8 +6,9 @@ import InputCore
 /// Only operates on a newly opened test document or an empty, unsent draft.
 @MainActor
 final class ExternalHost {
-    static let cases = ["textedit-undo", "codex-draft"]
+    static let cases = ["textedit-undo", "codex-draft", "codex-shift"]
 
+    private let scenario: String
     private let app: NSRunningApplication
     private let document: URL?
     private let window: AXUIElement
@@ -39,10 +40,28 @@ final class ExternalHost {
         return false
     }
 
+    /// Electron can reuse the same editor accessibility object for a new chat.
+    /// Request a distinct window when the host exposes its File > New Window action.
+    private static func openCodexWindow(_ app: AXUIElement) -> Bool {
+        guard let bar = element(app, kAXMenuBarAttribute),
+              let menus = attribute(bar, kAXChildrenAttribute) as? [AXUIElement] else { return false }
+        for file in menus where ["File", "文件"].contains(attribute(file, kAXTitleAttribute) as? String ?? "") {
+            for menu in attribute(file, kAXChildrenAttribute) as? [AXUIElement] ?? [] {
+                for item in attribute(menu, kAXChildrenAttribute) as? [AXUIElement] ?? [] {
+                    if ["New Window", "新窗口"].contains(attribute(item, kAXTitleAttribute) as? String ?? "") {
+                        return AXUIElementPerformAction(item, kAXPressAction as CFString) == .success
+                    }
+                }
+            }
+        }
+        return false
+    }
+
     init(run: TraceRun, installed: URL, manual: Bool) throws {
         guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else {
             throw RunFailure.blocked("external checks require accessibility and event posting access")
         }
+        scenario = run.scenario
         self.installed = installed
         var launchedInstance: NSRunningApplication?
         var temporaryFile: URL?
@@ -96,7 +115,9 @@ final class ExternalHost {
                 throw RunFailure.blocked("cannot identify existing Codex windows")
             }
             originalWindows = windows
-            try Self.post(UInt16(kVK_ANSI_N), flags: .maskCommand, to: pid)
+            if !Self.openCodexWindow(ax) {
+                try Self.post(UInt16(kVK_ANSI_N), flags: .maskCommand, to: pid)
+            }
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
         let expectedFile = document
@@ -132,11 +153,24 @@ final class ExternalHost {
             return true
         }), let target else { throw RunFailure.blocked("dedicated editor did not acquire focus") }
         (window, editor) = target
+        try requireEditor(requireSource: false)
+        // macOS may restore a different source as the new editor gains focus.
+        if sourceID(TISCopyCurrentKeyboardInputSource().takeRetainedValue()) != TraceRun.imeID {
+            let filter = [kTISPropertyInputSourceID as String: TraceRun.imeID] as CFDictionary
+            let sources = TISCreateInputSourceList(filter, false).takeRetainedValue() as! [TISInputSource]
+            guard let source = sources.first, TISSelectInputSource(source) == noErr,
+                  try Self.wait(2, for: {
+                      try requireEditor(requireSource: false)
+                      return sourceID(TISCopyCurrentKeyboardInputSource().takeRetainedValue()) == TraceRun.imeID
+                  }) else { throw RunFailure.blocked("could not select Debug in dedicated editor") }
+        }
         try requireEmptyEditor()
         editorVerified = true
     }
 
-    private func requireEditor() throws {
+    private func requireEditor() throws { try requireEditor(requireSource: true) }
+
+    private func requireEditor(requireSource: Bool) throws {
         let pid = app.processIdentifier
         let ax = AXUIElementCreateApplication(pid)
         guard interrupted == 0, !IsSecureEventInputEnabled() else {
@@ -145,7 +179,7 @@ final class ExternalHost {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
             throw RunFailure.blocked("external host lost foreground")
         }
-        guard sourceID(TISCopyCurrentKeyboardInputSource().takeRetainedValue()) == TraceRun.imeID else {
+        guard !requireSource || sourceID(TISCopyCurrentKeyboardInputSource().takeRetainedValue()) == TraceRun.imeID else {
             throw RunFailure.blocked("Debug input source no longer selected in external host")
         }
         guard let win = Self.element(ax, kAXFocusedWindowAttribute), CFEqual(win, window) else {
@@ -210,13 +244,12 @@ final class ExternalHost {
         return windows
     }
 
-    private func readyPreview(pid: pid_t) -> String? {
+    static func panelValue(pid: pid_t) -> String? {
         let ime = AXUIElementCreateApplication(pid)
         guard var elements = Self.attribute(ime, kAXWindowsAttribute) as? [AXUIElement] else { return nil }
         while let element = elements.popLast() {
             if Self.attribute(element, kAXDescriptionAttribute) as? String == "随键译输入、纠错与翻译预览",
-               let value = Self.attribute(element, kAXValueAttribute) as? String,
-               let translation = ExternalDraft.previewTranslation(value) { return translation }
+               let value = Self.attribute(element, kAXValueAttribute) as? String { return value }
             if let children = Self.attribute(element, kAXChildrenAttribute) as? [AXUIElement] {
                 elements.append(contentsOf: children)
             }
@@ -237,6 +270,36 @@ final class ExternalHost {
                 app.terminate()
                 try? FileManager.default.removeItem(at: document)
             }
+        }
+        if scenario == "codex-shift" {
+            try requireEmptyEditor()
+            expectedCleanup = ["x", "xnihao", "xnihao ", "x你好"]
+            let pid = app.processIdentifier
+            try RunDriver.tapShift(to: pid, verifyTarget: requireEditor)
+            guard try Self.wait(2, for: {
+                try requireEditor()
+                observedIMEPID = try debugWindows().values.first {
+                    Self.panelValue(pid: $0)?.contains("临时英文") == true
+                }
+                return observedIMEPID != nil
+            }) else { throw RunFailure.failed("Debug did not show English mode in dedicated draft") }
+            lastStep = "installed Debug English mode indicator"
+            try key(UInt16(kVK_ANSI_X))
+            guard try Self.wait(2, for: { try contents() == "x" }) else {
+                throw RunFailure.failed("direct English input mismatch")
+            }
+            lastStep = "first letter visible"
+            try RunDriver.tapShift(to: pid, verifyTarget: requireEditor)
+            for letter in PinyinCommit.letters { try key(letter) }
+            guard try Self.wait(3, for: {
+                try requireEditor()
+                guard let observedIMEPID, try debugWindows().values.contains(observedIMEPID) else { return false }
+                return Self.panelValue(pid: observedIMEPID)?.contains("候选") == true
+            }) else { throw RunFailure.blocked("no candidate window from installed Debug after second Shift") }
+            try key(PinyinCommit.confirm)
+            guard try Self.wait(3, for: { try contents() == "x你好" }) else { throw RunFailure.failed("mixed English and Chinese commit mismatch") }
+            lastStep = "direct letter and subsequent Chinese verified"
+            return
         }
         guard settings.read().translationEnabled else { throw RunFailure.blocked("translation disabled in Debug settings") }
         try requireEmptyEditor()
@@ -273,7 +336,7 @@ final class ExternalHost {
             try requireEditor()
             guard try contents() == ExternalDraft.chinese else { throw RunFailure.blocked("sample changed before replacement") }
             guard try debugWindows().values.contains(pid) else { return false }
-            preview = readyPreview(pid: pid)
+            preview = Self.panelValue(pid: pid).flatMap(ExternalDraft.previewTranslation)
             return preview != nil
         }), let preview else { throw RunFailure.blocked("expected English preview not observed before timeout") }
         lastStep = "English preview verified"

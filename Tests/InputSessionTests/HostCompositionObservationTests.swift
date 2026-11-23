@@ -82,3 +82,15 @@ final class HostCompositionObservationTests: XCTestCase {
                                         documentLength: { 2 }), .markEnded)
     }
 }
+
+extension HostCompositionObservationTests {
+    func testReactivationDiscardsOnlyVerifiedMarkedRange() {
+        let observed = HostCompositionObservation()
+        let mark = NSRange(location: 4, length: 2)
+        let caret = NSRange(location: 6, length: 0)
+        XCTAssertNil(observed.ownedMarkToDiscard(preedit: "ni", mark: mark, selection: NSRange(location: 0, length: 3)) { _ in "ni" })
+        XCTAssertNil(observed.ownedMarkToDiscard(preedit: "ni", mark: NSRange(location: NSNotFound, length: 0), selection: caret) { _ in "ni" })
+        XCTAssertNil(observed.ownedMarkToDiscard(preedit: "ni", mark: mark, selection: caret) { _ in "新文" })
+        XCTAssertEqual(observed.ownedMarkToDiscard(preedit: "ni", mark: mark, selection: caret) { _ in "ni" }, mark)
+    }
+}

@@ -27,6 +27,42 @@ final class InputSettingsTests: XCTestCase {
         XCTAssertEqual(release.read(), InputSettings())
     }
 
+    func testTypingPreferencesAndPerAppOverridesSurviveIndependentEdits() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let helper = InputSettingsStore(directory: dir)
+        let ime = InputSettingsStore(directory: dir)
+
+        try helper.update {
+            $0.candidatePageSize = 10
+            $0.translationDirection = .englishToChinese
+            $0.shiftTogglesEnglish = true
+            $0.usesASCIIPunctuation = true
+            $0.pagingKeys = .brackets
+            $0.pinyinLayout = .flypy
+            $0.learnsWords = false
+            $0.appPreviewOverrides["test.chat"] = .enabled
+        }
+        try ime.update {
+            $0.translationEnabled = false
+            $0.appPreviewOverrides["test.editor"] = .disabled
+            $0.candidatePageSize = 11
+        }
+        let result = helper.read()
+        XCTAssertEqual(result.candidatePageSize, 10)
+        XCTAssertEqual(result.translationDirection, .englishToChinese)
+        XCTAssertEqual(result.pinyinLayout, .flypy)
+        XCTAssertEqual(result.pagingKeys, .brackets)
+        XCTAssertTrue(result.usesASCIIPunctuation && result.shiftTogglesEnglish)
+        XCTAssertFalse(result.learnsWords)
+        XCTAssertTrue(result.previewEnabled(for: "test.chat"))
+        XCTAssertFalse(result.previewEnabled(for: "test.editor"))
+        XCTAssertFalse(result.previewEnabled(for: nil))
+        try helper.update { $0.appPreviewOverrides["test.chat"] = .followGlobal }
+        XCTAssertNil(ime.read().appPreviewOverrides["test.chat"])
+        XCTAssertFalse(ime.read().previewEnabled(for: "test.chat"))
+    }
+
     func testMissingAndInvalidFieldsUseDefaults() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
