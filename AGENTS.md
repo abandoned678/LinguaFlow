@@ -10,6 +10,7 @@ These rules apply to the whole repository.
 - Track only text committed by this input method in the current input session. Do not scan arbitrary host-document history.
 - Clear sentence context and cancel translation on deactivation, app/focus changes, navigation, or secure input.
 - Do not persist raw sentences or translations without an explicit product decision and user-facing control.
+- Keep diagnostics for real input content-free. Use stage, outcome, timing and length buckets for runtime logs and signposts. Keep pinyin, candidates, surrounding host text and translations out of diagnostics, including error messages and Debug test reports. Compare synthetic sample text inside the test and report its assertion result.
 
 ## Lifecycle invariants
 

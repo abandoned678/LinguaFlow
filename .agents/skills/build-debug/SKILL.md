@@ -65,6 +65,12 @@ swift run translation-checks
 - 卡住或疑似缓存问题：先看诊断和进程进展，保留现有 `.build`／DerivedData；只有项目证据指向损坏时再清理对应产物。只停止已确认与本任务有关的进程，不清空其他项目缓存或广泛杀进程。
 - 内存增长：围绕合成输入重复“激活 → 组词／翻译 → 失焦”周期，用 Instruments Allocations／Leaks 或 Memory Graph 区分增长与稳定缓存；检查 controller、panel、翻译 Task、session、timer 和 observer 的所有权。遵守应用持有全局 Rime runtime、controller 持有 session、C 分配释放留在桥内的约束；不套用 iOS 内存阈值。
 
+## 诊断输出与报告演进
+
+诊断运行时问题沿用系统 `Logger` 和 `OSSignposter`。关联 Debug 用例时，用运行 ID、构建号、阶段和断言结果定位；运行器的 `PASS`、`FAIL`、`BLOCKED` 及退出码保留作自动化接口。按 [AGENTS.md](../../../AGENTS.md) 审核错误值和日志插值，避免把输入内容带入持久记录。
+
+只有修改 [Trace 格式](../../../Tools/IMETesting/Trace/IMETrace.swift)或运行器的 `summary.report` 时才做格式回归。用旧报告、增加未知字段的样本和损坏样本验证读取行为。可选字段缺失时保留可读信息；评估本次是否通过时，须能关联本次运行与构建并满足该用例的证据要求。缺关键阶段或证据损坏时报告证据不足。
+
 ## 安装和数据边界
 
 构建不包含安装、注册、修改系统设置或主动下载模型的授权。沿用当前会话已有授权，不重复确认；缺少相关授权时先完成构建和精确目标检查，再说明待执行操作。
