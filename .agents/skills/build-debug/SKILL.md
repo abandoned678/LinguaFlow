@@ -34,7 +34,20 @@ swift build --product InputMethod
 swift build --product TranslationSetup
 ```
 
-UI 或翻译变更必须构建这两个产品。需要完整本地产物时用 `./scripts/build-app.sh release`；明确要求安装包时用 `./scripts/build-installer.sh release`。纯 Swift 编译通过不证明资源、内嵌动态库、签名或安装包完整，完整应用构建也不证明宿主兼容性。
+UI 或翻译变更必须构建这两个产品。日常开发与正式发包按目标分流。
+
+| 目标 | 构建和验证入口 |
+| --- | --- |
+| 日常 Debug 输入法及专用宿主、运行器 | 执行 `./scripts/build-debug-ime.sh`。只改测试工具时可执行 `./scripts/build-ime-test-tools.sh` |
+| 安装并验证 Debug | 在已获安装授权时执行 `./scripts/install-local.sh --test-build`，核对输入源可选。比较下方两个 plist 的 `IMETestBuild`，UUID 必须一致。按任务使用 `./scripts/test-ime.sh --case pinyin-commit` 等用例，将报告的构建号与磁盘产物、运行进程路径关联 |
+| 正式 App 或安装包 | 构建 App 用 `./scripts/build-app.sh release`；安装脚本无参数会构建并安装正式版。打包用 `./scripts/build-installer.sh release`；双版本发版检查用 `release --strict`，先从同一干净提交构建 Debug |
+
+```sh
+plutil -extract IMETestBuild raw .build/ime-testing/SentenceAlongDebug.app/Contents/Info.plist
+plutil -extract IMETestBuild raw "$HOME/Library/Input Methods/SentenceAlongDebug.app/Contents/Info.plist"
+```
+
+缺少注册或启用时，参考[调试规格](../../../docs/IME_DEBUG_TESTING_SPEC.md)处理相应状态。只把当前验证层观察到的结果记入报告。
 
 输入变更还需按 [状态测试技能](../input-state-testing/SKILL.md) 运行核心与真实 Rime 检查。翻译 provider／模型相关任务按需运行：
 
@@ -59,3 +72,9 @@ swift run translation-checks
 安装开发版前核对独立名称、Bundle／输入源 ID、连接名、用户数据目录，以及源码和安装脚本中的固定路径／ID 白名单；只改 plist 不能证明隔离完成。不得覆盖上游或其他输入法的数据，不手动删除系统共享翻译模型，不扫描宿主历史或记录用户原句／译文来排查问题。
 
 交付时分别说明：构建产品、应用打包、安装包、签名／公证、安装注册、真实宿主运行中哪些已执行。附失败命令与关键诊断；不要把预览版未签名或旧宿主验证记录当作本次结果。
+
+## 输入延迟与内存对照实验
+
+仅在性能问题或性能目标属于本次任务时运行。固定系统、宿主、输入源配置、合成按键序列、词库及模型状态，记录基线和候选构建号。区分冷启动与已预热的轮次，交替重复测量，记录样本数、典型延迟与慢样本。候选响应从按键到候选首次出现，译文响应从最后一次按键到当前修订的预览出现；只有面板提交计时的场景，明确写出实际计时终点。沿用项目 signpost 或受控宿主观测，报告中只保留元数据。
+
+内存对比固定每轮“激活 → 拼音上屏 → 译文就绪 → 失焦”的动作数，分别记录预热后、重复使用后及空闲稳定时的占用。用同一采样工具比较斜率；若持续增长，再用 Allocations / Leaks 检查 Rime session、控制器、面板或异步任务的存活数。记录异常轮次和环境变化，只有同一工作负载的复测才能支持性能改进结论。
