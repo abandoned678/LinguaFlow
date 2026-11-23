@@ -6,6 +6,9 @@ import LocalTranslation
 import OSLog
 import RimeInput
 import InputSession
+#if DEBUG && IME_TEST_BUILD
+import IMETrace
+#endif
 
 @objc(InputMethodController)
 @MainActor
@@ -65,7 +68,7 @@ final class InputMethodController: IMKInputController {
         super.init(server: server, delegate: delegate, client: inputClient)
         activeClient = inputClient as? any IMKTextInput
         if product.usesRime {
-            engine = AppEnvironment.shared.makeEngine()
+            engine = AppEnvironment.shared.makeEngine(clientBundleID: activeClient?.bundleIdentifier())
         }
 
         let sentenceTranslationProvider = OnDeviceTranslationProvider(
@@ -261,7 +264,13 @@ final class InputMethodController: IMKInputController {
     }
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
-        guard isActive, let event, event.type == .keyDown else { return false }
+        guard let event, event.type == .keyDown else { return false }
+        guard isActive else {
+            #if DEBUG && IME_TEST_BUILD
+            if !IsSecureEventInputEnabled() { Self.timing.emitEvent("Inactive input controller") }
+            #endif
+            return false
+        }
         palettesHidden = false
         let timing = Self.timing.beginInterval("Input event")
         defer { Self.timing.endInterval("Input event", timing) }
@@ -378,6 +387,7 @@ final class InputMethodController: IMKInputController {
             showReplacementNotice(reason, client: client)
         case .success(let range):
             guard !awaitedHostReturn, let snapshot, let translation,
+                  prepareReplacement(range, source: snapshot.text, translation: translation.translatedText, client: client),
                   TrackedTextReplacement.applyIfVerified(range, expected: snapshot.text,
                     read: { client.attributedSubstring(from: $0)?.string },
                     replace: { self.insert(translation.translatedText, in: $0, client: client) }) else {
@@ -387,6 +397,25 @@ final class InputMethodController: IMKInputController {
             }
             clearDocumentContext()
         }
+    }
+
+    private func prepareReplacement(_ range: NSRange, source: String, translation: String,
+                                    client: any IMKTextInput) -> Bool {
+        var needsUndoBoundary = client.bundleIdentifier() == "com.apple.TextEdit"
+        #if DEBUG && IME_TEST_BUILD
+        needsUndoBoundary = needsUndoBoundary || client.bundleIdentifier() == TraceRun.hostID
+        #endif
+        guard needsUndoBoundary else { return true }
+        guard let first = translation.first, client.attributedSubstring(from: range)?.string == source else { return false }
+        // A cancelled inline composition at the sentence start moves NSTextView's
+        // insertion point out of the preceding typing group without committing text.
+        // IMK drops an empty mark unless an inline composition is already active.
+        let start = NSRange(location: range.location, length: 0)
+        let zero = NSRange(location: 0, length: 0)
+        client.setMarkedText(NSAttributedString(string: String(first)), selectionRange: zero, replacementRange: start)
+        client.setMarkedText("", selectionRange: zero, replacementRange: Self.notFoundRange)
+        invalidateHostRanges()
+        return !hasHostMarkedText(client) && readSelection(client) == start
     }
 
     private func showReplacementNotice(_ reason: TrackedTextReplacement.Rejection, client: any IMKTextInput) {

@@ -7,8 +7,12 @@ configuration=${1:-release}
 code_sign_identity=${CODE_SIGN_IDENTITY:--}
 app_bundle="$project_dir/.build/SentenceAlong.app"
 build_args=(-c "$configuration")
-if [[ ${SENTENCEALONG_TEST_BUILD:-0} == 1 ]]; then
-  [[ "$configuration" == debug ]] || exit 64
+case "$configuration" in
+  debug) export SENTENCEALONG_TEST_BUILD=1 ;;
+  release) export SENTENCEALONG_TEST_BUILD=0 ;;
+  *) echo "Usage: $0 [debug|release]" >&2; exit 64 ;;
+esac
+if [[ "$configuration" == debug ]]; then
   app_bundle="$project_dir/.build/ime-testing/SentenceAlongDebug.app"
   build_args+=(--scratch-path "$project_dir/.build/ime-testing/swift")
 fi
@@ -47,7 +51,7 @@ cp "$project_dir/Vendor/rime-essay/LICENSE" \
   "$app_bundle/Contents/Resources/ThirdPartyLicenses/RimeEssay-LICENSE.txt"
 
 cp "$project_dir/Resources/TranslationSetup.plist" "$helper_bundle/Contents/Info.plist"
-if [[ ${SENTENCEALONG_TEST_BUILD:-0} == 1 ]]; then
+if [[ "$configuration" == debug ]]; then
   test_id=com.abandoned678.inputmethod.SentenceAlongDebug
   for key in CFBundleIdentifier TISInputSourceID; do
     plutil -replace "$key" -string "$test_id" "$app_bundle/Contents/Info.plist"
@@ -60,9 +64,10 @@ if [[ ${SENTENCEALONG_TEST_BUILD:-0} == 1 ]]; then
   plutil -insert IMETestBuild -string "$(uuidgen)" "$app_bundle/Contents/Info.plist"
   plutil -replace CFBundleIdentifier -string "$test_id.Setup" "$helper_bundle/Contents/Info.plist"
   plutil -replace CFBundleURLTypes.0.CFBundleURLSchemes.0 -string sentencealong-debug-settings "$helper_bundle/Contents/Info.plist"
-  # Make rankings repeatable regardless of previous test runs.
+  # Deploy the synthetic schema as a dependency, outside the user's schema list.
+  cp "$project_dir/Tools/IMETesting/Rime/sentencealong_fixture.schema.yaml" "$app_bundle/Contents/Resources/Rime/"
   print -r -- 'patch:
-  translator/enable_user_dict: false' > "$app_bundle/Contents/Resources/Rime/luna_pinyin_simp.custom.yaml"
+  schema/dependencies/+: [sentencealong_fixture]' > "$app_bundle/Contents/Resources/Rime/luna_pinyin_simp.custom.yaml"
 fi
 cp "$binary_dir/TranslationSetup" "$helper_bundle/Contents/MacOS/SentenceAlongSetup"
 

@@ -5,6 +5,7 @@ export COPYFILE_DISABLE=1
 
 project_dir=${0:A:h:h}
 configuration=${1:-release}
+[[ "$configuration" == release ]] || { echo "Installer packages require a release build" >&2; exit 64; }
 architecture=arm64
 app_sign_identity=${CODE_SIGN_IDENTITY:--}
 installer_sign_identity=${INSTALLER_SIGN_IDENTITY:-}

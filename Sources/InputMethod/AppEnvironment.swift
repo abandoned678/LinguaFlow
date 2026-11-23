@@ -2,6 +2,9 @@ import Foundation
 import InputCore
 import OSLog
 import RimeInput
+#if DEBUG && IME_TEST_BUILD
+import IMETrace
+#endif
 
 @MainActor
 final class AppEnvironment {
@@ -39,11 +42,17 @@ final class AppEnvironment {
         }
     }
 
-    func makeEngine() -> RimeEngine? {
+    func makeEngine(clientBundleID: String?) -> RimeEngine? {
         guard let runtime else { return nil }
         let start = ContinuousClock.now
         do {
+            #if DEBUG && IME_TEST_BUILD
+            let engine = clientBundleID == TraceRun.hostID
+                ? try RimeEngine(runtime: runtime, schema: "sentencealong_fixture")
+                : try RimeEngine(runtime: runtime)
+            #else
             let engine = try RimeEngine(runtime: runtime)
+            #endif
             let duration = start.duration(to: .now).components
             let elapsed = Double(duration.seconds) * 1_000 + Double(duration.attoseconds) / 1e15
             logger.debug("stage=sessionCreation elapsedMS=\(elapsed)")

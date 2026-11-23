@@ -115,15 +115,42 @@ final class RunDriver {
 
 
 @MainActor
+private func launchHost(tools: URL, run: TraceRun) throws -> NSRunningApplication {
+    let config = NSWorkspace.OpenConfiguration()
+    config.arguments = [run.id.uuidString]
+    config.createsNewApplicationInstance = true
+    config.activates = true
+    var result: Result<NSRunningApplication, Error>?
+    NSWorkspace.shared.openApplication(at: tools.appendingPathComponent("IMEHost.app"), configuration: config) { app, error in
+        DispatchQueue.main.async {
+            if let app { result = .success(app) }
+            else { result = .failure(error ?? RunFailure.blocked("host launch failed")) }
+        }
+    }
+    let deadline = Date().addingTimeInterval(10)
+    while result == nil, Date() < deadline, interrupted == 0 {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.04))
+    }
+    guard let result else { throw RunFailure.blocked("host launch timed out") }
+    let host = try result.get()
+    return host
+}
+
+@MainActor
 func execute() throws {
     let args = Array(CommandLine.arguments.dropFirst())
-    guard args.count == 2 || args.count == 3, args[0] == "--case", ["pinyin-commit", "composition-caret", "punctuation-preview", "translation-undo", "candidate-click", "panel-host-exit", "panel-mark-ended", "panel-editor-cleared", "panel-app-switch"].contains(args[1]),
+    guard args.count == 2 || args.count == 3, args[0] == "--case", ["pinyin-commit", "composition-caret", "punctuation-preview", "translation-undo", "candidate-click", "panel-host-exit", "panel-mark-ended", "panel-editor-cleared", "panel-app-switch"].contains(args[1]) || ExternalHost.cases.contains(args[1]),
           args.count == 2 || args[2] == "--manual" else {
         throw RunFailure.blocked("usage: IMERunner --case pinyin-commit [--manual]")
     }
     let manual = args.contains("--manual")
-    guard !manual || args[1] == "pinyin-commit" || args[1] == "candidate-click" else {
-        throw RunFailure.blocked("manual input is supported for pinyin-commit and candidate-click")
+    let external = ExternalHost.cases.contains(args[1])
+    guard !manual || external || args[1] == "pinyin-commit" || args[1] == "candidate-click" else {
+        throw RunFailure.blocked("manual input is supported for pinyin-commit, candidate-click and external hosts")
+    }
+    guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+          session["CGSSessionScreenIsLocked"] as? Bool != true else {
+        throw RunFailure.blocked("unlock the macOS desktop before running host tests")
     }
     let tools = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.deletingLastPathComponent()
     let ime = Bundle(url: tools.appendingPathComponent("SentenceAlongDebug.app"))
@@ -136,6 +163,7 @@ func execute() throws {
           installedBundle.object(forInfoDictionaryKey: "IMETestBuild") as? String == build else {
         throw RunFailure.blocked("installed Debug IME missing or stale; install matching build")
     }
+    let started = DispatchTime.now().uptimeNanoseconds
     let run = TraceRun(build: build, scenario: args[1])
     let fm = FileManager.default
     try fm.createDirectory(at: run.directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -143,7 +171,7 @@ func execute() throws {
     guard lock >= 0 else { throw RunFailure.blocked("cannot open run lock") }
     defer { close(lock) }
     guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { throw RunFailure.blocked("another run is active") }
-    try JSONEncoder().encode(run).write(to: TraceRun.active, options: .atomic)
+    if !external { try JSONEncoder().encode(run).write(to: TraceRun.active, options: .atomic) }
     defer { try? fm.removeItem(at: TraceRun.active) }
     let original = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
     func restoreOriginalSource() throws {
@@ -163,34 +191,34 @@ func execute() throws {
         break
     }
     guard selected else { throw RunFailure.blocked("Debug input source unavailable") }
-    let config = NSWorkspace.OpenConfiguration()
-    config.arguments = [run.id.uuidString]
-    config.createsNewApplicationInstance = true
-    config.activates = true
-    var result: Result<NSRunningApplication, Error>?
-    NSWorkspace.shared.openApplication(at: tools.appendingPathComponent("IMEHost.app"), configuration: config) { app, error in
-        DispatchQueue.main.async {
-            if let app { result = .success(app) }
-            else { result = .failure(error ?? RunFailure.blocked("host launch failed")) }
-        }
-    }
-    let deadline = Date().addingTimeInterval(10)
-    while result == nil, Date() < deadline, interrupted == 0 {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.04))
-    }
-    guard let result else { throw RunFailure.blocked("host launch timed out") }
-    let host = try result.get()
-    defer { host.terminate() }
     print("run=\(run.id) build=\(build) driver=\(manual ? "manual" : "CGEvent") evidence=\(run.directory.path)")
-    let driver = RunDriver(run: run, host: host, manual: manual)
+    var driver: RunDriver?
+    var externalHost: ExternalHost?
+    var host: NSRunningApplication?
+    defer { host?.terminate() }
     func report(_ status: String, reason: String = "") throws {
-        let summary = ["status": status, "reason": reason, "lastStep": driver.lastStep,
+        var summary = ["status": status, "reason": reason, "lastStep": driver?.lastStep ?? externalHost?.lastStep ?? "host launch requested",
+                       "inputSourceID": TraceRun.imeID, "installedBundle": installed.path,
                        "case": run.scenario, "build": run.build, "run": run.id.uuidString,
                        "driver": manual ? "manual" : "CGEvent"]
+        summary["elapsedMilliseconds"] = String((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
+        if let pid = externalHost?.observedIMEPID {
+            summary["observedIMEPID"] = String(pid)
+        }
         try JSONEncoder().encode(summary).write(to: run.directory.appendingPathComponent("summary.report"), options: .atomic)
     }
     do {
-        try driver.execute()
+        if external {
+            let test = try ExternalHost(run: run, installed: installed, manual: manual)
+            externalHost = test
+            try test.execute(manual: manual)
+        } else {
+            let app = try launchHost(tools: tools, run: run)
+            host = app
+            let test = RunDriver(run: run, host: app, manual: manual)
+            driver = test
+            try test.execute()
+        }
         try restoreOriginalSource()
         restored = true
         try report("passed")

@@ -15,11 +15,11 @@ final class TestTextView: NSTextView {
     }
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
-        if replacementRange.location != NSNotFound && !hasMarkedText() { breakUndoCoalescing() }
         super.insertText(string, replacementRange: replacementRange)
         if allowCapture {
             trace?.record(.inserted)
-            if trace?.run.scenario == "translation-undo", self.string != "你好",
+            let inserted = (string as? NSAttributedString)?.string ?? string as? String
+            if trace?.run.scenario == "translation-undo", inserted == self.string, !hasMarkedText(),
                self.string.rangeOfCharacter(from: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) != nil {
                 translated = true
                 trace?.record(.translatedDocument)

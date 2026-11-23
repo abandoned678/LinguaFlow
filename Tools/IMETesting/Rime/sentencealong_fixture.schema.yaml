@@ -1,0 +1,20 @@
+# Inherit the shipping pinyin scheme, with deterministic results for synthetic input.
+__include: luna_pinyin.schema:/
+__patch:
+  - switches/@2/reset: 1
+
+schema:
+  schema_id: sentencealong_fixture
+  name: 随键译测试
+  version: "1"
+  dependencies: [stroke]
+
+translator:
+  prism: luna_pinyin_simp
+  enable_user_dict: false
+
+engine:
+  translators:
+    - punct_translator
+    - reverse_lookup_translator
+    - script_translator
