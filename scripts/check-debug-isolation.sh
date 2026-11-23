@@ -28,7 +28,7 @@ plist="$bundle/Contents/Info.plist"
 if plutil -extract IMETestBuild raw "$plist" >/dev/null 2>&1; then exit 1; fi
 [[ -z $(find "$bundle" \( -name IMEHost -o -name IMERunner -o -name '*IMETrace*' \) -print) ]]
 symbols=$(nm "$bundle/Contents/MacOS/SentenceAlongIME")
-[[ "$symbols" != *DebugIMEProbe* && "$symbols" != *IMETrace* ]]
+[[ "$symbols" != *DebugCompositionLog* && "$symbols" != *DebugIMEProbe* && "$symbols" != *IMETrace* ]]
 codesign --verify --deep --strict "$bundle"
 fixture=sentencealong_fixture.schema.yaml
 [[ ! -e "$bundle/Contents/Resources/Rime/$fixture" ]]
@@ -37,7 +37,7 @@ if [[ "$mode" != --release-only && -d "$debug_bundle" ]]; then
   [[ $(plutil -extract CFBundleIdentifier raw "$debug_bundle/Contents/Info.plist") == com.abandoned678.inputmethod.SentenceAlongDebug ]]
   plutil -extract IMETestBuild raw "$debug_bundle/Contents/Info.plist" >/dev/null
   debug_symbols=$(nm "$debug_bundle/Contents/MacOS/SentenceAlongIME")
-  [[ "$debug_symbols" == *DebugIMEProbe* ]]
+  [[ "$debug_symbols" == *DebugCompositionLog* && "$debug_symbols" == *DebugIMEProbe* ]]
   cmp "Tools/IMETesting/Rime/$fixture" "$debug_bundle/Contents/Resources/Rime/$fixture"
   diff -qr -x "$fixture" -x luna_pinyin_simp.custom.yaml \
     "$bundle/Contents/Resources/Rime" "$debug_bundle/Contents/Resources/Rime"
@@ -69,7 +69,7 @@ fi
 # When available, check the ordinary (non-test) debug executable as well.
 if [[ -x .build/debug/InputMethod ]]; then
   ordinary_symbols=$(nm .build/debug/InputMethod)
-  [[ "$ordinary_symbols" != *DebugIMEProbe* ]]
+  [[ "$ordinary_symbols" != *DebugCompositionLog* && "$ordinary_symbols" != *DebugIMEProbe* ]]
 fi
 if [[ "$mode" == --strict ]]; then
   echo "Strict Debug and Release isolation passed for $expected"

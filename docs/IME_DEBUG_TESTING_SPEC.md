@@ -141,9 +141,21 @@ Debug 构建 `ED7C3E12-AA09-4865-9540-2AC174AB8B1D` 的九个用例全部通过�
 
 开发者查问题时继续使用已有的系统统一日志和 Instruments signpost。仓库已按 Rime 启动、翻译调度、输入与浮层耗时记录诊断信息，可沿用现有 subsystem 与分类。[引擎日志](../Sources/InputMethod/AppEnvironment.swift) · [翻译日志](../Sources/InputCore/TranslationCoordinator.swift) · [输入计时](../Sources/InputMethod/InputMethodController.swift)
 
+排查“浮层消失并丢失拼音”时，安装带该诊断的 Debug 构建，记下复现时间，在终端查询最近十分钟的组词和清理记录。此查询只读系统统一日志，可以在 Codex 草稿保持原状时执行。
+
+```sh
+/usr/bin/log show --last 10m --style compact --predicate 'subsystem == "com.abandoned678.inputmethod.SentenceAlongDebug" AND category == "CompositionReset"'
+```
+
+对照同一进程和 `controller` 的事件时间。若 `composing=true` 时出现 `reason=caretUnavailable`，说明位置刷新读不到光标，随后走了清理分支。`markUnavailable` 表示标记位置不可用，`markTextMismatch` 表示当前标记与组词核对失败。`lastCharacterRemoved` 且 `composing=false` 可发生在正常删除最后一个已上屏字时。按出现时机区分它和随后输入时的清理。记录包含激活、失活和关闭等边界，控制器标识只在该实例内有效。
+
+重新打字后，沿同一控制器查找 `composition edge=began`。若随后收到 `reset`，查看清理原因；若收到 `composition edge=ended`，用 `hasCommit` 判断该 Rime 快照是否包含上屏内容。`commitComposition` 表示进入提交方法，其中 `source=imkCallback` 来自 IMK 回调，`hostShortcut` 和 `forwardDelete` 分别来自输入法放行快捷键和向前删除的分支。`hidePalettes` 表示有组词或面板内容时收到隐藏请求，单凭这条记录无法断定组词被清空。
+
+系统决定日志保留时间。诊断跳过安全输入，普通按键不会逐键记录。宿主自行改字可能没有对应事件；报告复现时间即可关联，无需粘贴原文。
+
 自动断言使用内部 target `IMETrace`，只提供固定阶段、运行 ID、事件序号、计数、耗时和断言结果。文本比较在测试宿主或引擎侧就地完成，只输出是否匹配。运行器根据双端事件作判定；开发者可用运行 ID 查看对应测试报告。缓冲区溢出、文件写入失败或关键事件缺失时，将证据不完整写入报告。首期无需给所有 target 引入通用 DebugLog 门面，也无需靠解析 Console 日志来维持用例。
 
-输入法侧的采集与写出实现采用专用测试构建标志并结合 Debug 配置编译；普通 Debug 会话默认不采集。验收时分别检查 Release 产物、未启动用例的 Debug 进程，以及显式测试会话，确认只有最后一种会生成测试事件。
+输入法侧的采集与写出实现采用专用测试构建标志并结合 Debug 配置编译；日常 Debug 会话只产生上述运行诊断，测试事件流仅在显式测试会话写出。验收时分别检查 Release 产物、未启动用例的 Debug 进程，以及显式测试会话，确认只有最后一种会生成测试事件。
 
 ## 4. 首个里程碑：无人值守完成一次中文上屏
 

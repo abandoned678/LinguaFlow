@@ -15,6 +15,7 @@ import IMETrace
 final class InputMethodController: IMKInputController {
     #if DEBUG && IME_TEST_BUILD
     private let probe = DebugIMEProbe()
+    private let compositionLog = DebugCompositionLog()
     #endif
     private let product = InputProduct.current
     private var isActive = false
@@ -84,7 +85,7 @@ final class InputMethodController: IMKInputController {
             guard let self, self.isActive, !self.isUpdatingDraft else { return }
             guard state != .hidden else { return }
             guard !IsSecureEventInputEnabled() else {
-                self.clearDocumentContext()
+                self.clearDocumentContext(.secureInput)
                 return
             }
             self.reconcileTrackedCaret(client: self.activeClient)
@@ -102,7 +103,11 @@ final class InputMethodController: IMKInputController {
 
     override func activateServer(_ sender: Any!) {
         if isActive {
-            clearDocumentContext()
+            clearDocumentContext(.reactivated)
+        } else {
+            #if DEBUG && IME_TEST_BUILD
+            compositionLog.activated()
+            #endif
         }
         activeClient = sender as? any IMKTextInput
         activeApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -119,7 +124,7 @@ final class InputMethodController: IMKInputController {
         probe.stop()
         #endif
         isActive = false
-        clearDocumentContext()
+        clearDocumentContext(.deactivated)
         activeClient = nil
         activeApplicationPID = nil
     }
@@ -129,13 +134,19 @@ final class InputMethodController: IMKInputController {
         #if DEBUG && IME_TEST_BUILD
         probe.stop()
         #endif
-        clearDocumentContext(clearHostMark: false)
+        clearDocumentContext(.controllerClosed, clearHostMark: false)
         activeClient = nil
         activeApplicationPID = nil
         super.inputControllerWillClose()
     }
 
     override func hidePalettes() {
+        #if DEBUG && IME_TEST_BUILD
+        if !palettesHidden {
+            compositionLog.palettesHidden(composing: !currentPreedit.isEmpty,
+                                          panelHasContent: panelController.ownsPanel(self) && panelController.hasContent)
+        }
+        #endif
         palettesHidden = true
         stopPositionRefresh()
         panelController.hide(owner: self)
@@ -143,7 +154,14 @@ final class InputMethodController: IMKInputController {
     }
 
     override func commitComposition(_ sender: Any!) {
+        commitCurrentComposition(sender, source: .imkCallback)
+    }
+
+    private func commitCurrentComposition(_ sender: Any?, source: CompositionCommitSource) {
         guard isActive, !IsSecureEventInputEnabled(), !currentPreedit.isEmpty, let engine else { return }
+        #if DEBUG && IME_TEST_BUILD
+        compositionLog.commitRequested(source: source)
+        #endif
         let snapshot = engine.commitComposition()
         apply(snapshot, client: client(from: sender))
     }
@@ -203,7 +221,7 @@ final class InputMethodController: IMKInputController {
         coordinator.setEnabled(updated.translationEnabled)
         guard isActive, changed || appearanceChanged else { return }
         guard !IsSecureEventInputEnabled() else {
-            clearDocumentContext()
+            clearDocumentContext(.secureInput)
             return
         }
         guard changed else {
@@ -223,7 +241,7 @@ final class InputMethodController: IMKInputController {
             return
         }
         guard let activeClient else {
-            clearDocumentContext()
+            clearDocumentContext(.noActiveClient)
             return
         }
         reconcileTrackedCaret(client: activeClient)
@@ -255,7 +273,7 @@ final class InputMethodController: IMKInputController {
         guard notification.object as? String == product.translationDirection.rawValue else { return }
         if isActive {
             guard !IsSecureEventInputEnabled() else {
-                clearDocumentContext()
+                clearDocumentContext(.secureInput)
                 return
             }
             reconcileTrackedCaret(client: activeClient)
@@ -279,7 +297,7 @@ final class InputMethodController: IMKInputController {
         defer { eventRanges = nil }
         if let current = activeClient, let client,
            (current as AnyObject) !== (client as AnyObject) {
-            clearDocumentContext()
+            clearDocumentContext(.clientChanged)
         }
         activeClient = client
 
@@ -287,7 +305,7 @@ final class InputMethodController: IMKInputController {
             #if DEBUG && IME_TEST_BUILD
             probe.stop()
             #endif
-            clearDocumentContext()
+            clearDocumentContext(.secureInput)
             return false
         }
 
@@ -296,8 +314,8 @@ final class InputMethodController: IMKInputController {
         #endif
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if modifiers.contains(.command) || modifiers.contains(.option) {
-            commitComposition(sender)
-            clearDocumentContext()
+            commitCurrentComposition(sender, source: .hostShortcut)
+            clearDocumentContext(.hostShortcut)
             return false
         }
 
@@ -315,19 +333,19 @@ final class InputMethodController: IMKInputController {
         reconcileTrackedCaret(client: client)
 
         if isReturn(event), modifiers.contains(.control) {
-            clearDocumentContext()
+            clearDocumentContext(.controlReturn)
             return false
         }
 
         if event.keyCode == 117 {
-            commitComposition(sender)
-            clearDocumentContext()
+            commitCurrentComposition(sender, source: .forwardDelete)
+            clearDocumentContext(.forwardDelete)
             return false
         }
 
         if product == .english {
             if modifiers.contains(.control) {
-                clearDocumentContext()
+                clearDocumentContext(.englishControl)
                 return false
             }
             return handleEnglish(event, client: client, modifiers: modifiers)
@@ -350,7 +368,7 @@ final class InputMethodController: IMKInputController {
             } else if modifiers.contains(.control)
                 || isNavigationKey(event.keyCode)
                 || event.keyCode == 53 {
-                clearDocumentContext()
+                clearDocumentContext(.navigationOrControl)
             }
         }
 
@@ -383,7 +401,7 @@ final class InputMethodController: IMKInputController {
         )
         switch decision {
         case .failure(let reason):
-            if reason == .movedCaret || reason == .selection { clearDocumentContext() }
+            if reason == .movedCaret || reason == .selection { clearDocumentContext(.replacementSelectionChanged) }
             showReplacementNotice(reason, client: client)
         case .success(let range):
             guard !awaitedHostReturn, let snapshot, let translation,
@@ -391,11 +409,11 @@ final class InputMethodController: IMKInputController {
                   TrackedTextReplacement.applyIfVerified(range, expected: snapshot.text,
                     read: { client.attributedSubstring(from: $0)?.string },
                     replace: { self.insert(translation.translatedText, in: $0, client: client) }) else {
-                clearDocumentContext()
+                clearDocumentContext(.replacementRangeUnverified)
                 showReplacementNotice(.unverifiedRange, client: client)
                 return
             }
-            clearDocumentContext()
+            clearDocumentContext(.translationReplaced)
         }
     }
 
@@ -451,6 +469,9 @@ final class InputMethodController: IMKInputController {
             highlightChanged: previousCandidate != nextCandidate || currentHighlightedIndex != snapshot.highlightedIndex
         )
         #if DEBUG && IME_TEST_BUILD
+        if currentPreedit.isEmpty != snapshot.preedit.isEmpty {
+            compositionLog.compositionEdge(began: currentPreedit.isEmpty, hasCommit: snapshot.commit?.isEmpty == false)
+        }
         if nextCandidate == "你好" { probe.record(.candidateMatched, client: client) }
         #endif
         for edit in snapshot.hostEdits(previousPreedit: currentPreedit, previousCaret: preeditCaret) {
@@ -520,7 +541,7 @@ final class InputMethodController: IMKInputController {
     private func renderPanel(client: (any IMKTextInput)?) {
         guard isActive, !palettesHidden else { return }
         guard activeApplicationPID == NSWorkspace.shared.frontmostApplication?.processIdentifier else {
-            clearDocumentContext(clearHostMark: false)
+            clearDocumentContext(.foregroundChangedOnRender, clearHostMark: false)
             return
         }
         let source: String?
@@ -681,18 +702,17 @@ final class InputMethodController: IMKInputController {
             return
         }
         guard !IsSecureEventInputEnabled() else {
-            clearDocumentContext()
+            clearDocumentContext(.secureInput)
             return
         }
         guard activeApplicationPID == NSWorkspace.shared.frontmostApplication?.processIdentifier else {
-            clearDocumentContext(clearHostMark: false)
+            clearDocumentContext(.foregroundChangedOnRefresh, clearHostMark: false)
             return
         }
         eventRanges = HostRanges(client: ObjectIdentifier(activeClient as AnyObject))
         defer { eventRanges = nil }
-        if observedHostMark && !hostStillHasComposition(activeClient) {
-            // The host ended inline editing without sending IMK a deactivation.
-            clearDocumentContext(clearHostMark: false)
+        if observedHostMark, let reason = hostCompositionResetReason(activeClient) {
+            clearDocumentContext(reason, clearHostMark: false)
             return
         }
         reconcileTrackedCaret(client: activeClient)
@@ -701,18 +721,20 @@ final class InputMethodController: IMKInputController {
         showPanel(client: activeClient)
     }
 
-    private func hostStillHasComposition(_ client: any IMKTextInput) -> Bool {
+    private func hostCompositionResetReason(_ client: any IMKTextInput) -> ContextResetReason? {
         let mark = readMarkedRange(client)
-        guard mark.location != NSNotFound, mark.length > 0 else { return false }
+        guard mark.location != NSNotFound else { return .markUnavailable }
+        guard mark.length > 0 else { return .markEmpty }
         let caret = readSelection(client)
-        guard caret.location != NSNotFound else { return false }
+        guard caret.location != NSNotFound else { return .caretUnavailable }
         // Some clients retain the last IMK mark after clearing their editor. Only
         // verify our own composition, and only if the host caret has diverged.
-        if caret == mark { return true }
+        if caret == mark { return nil }
         if caret.length == 0, caret.location >= mark.location,
-           caret.location - mark.location == preeditCaret { return true }
-        guard mark.length == currentPreedit.utf16.count else { return false }
-        return client.attributedSubstring(from: mark)?.string == currentPreedit
+           caret.location - mark.location == preeditCaret { return nil }
+        guard mark.length == currentPreedit.utf16.count else { return .markLengthMismatch }
+        guard let markedText = client.attributedSubstring(from: mark)?.string else { return .markTextUnavailable }
+        return markedText == currentPreedit ? nil : .markTextMismatch
     }
 
     private func readSelection(_ client: any IMKTextInput) -> NSRange {
@@ -793,7 +815,12 @@ final class InputMethodController: IMKInputController {
         }
     }
 
-    private func clearDocumentContext(clearHostMark: Bool = true) {
+    private func clearDocumentContext(_ reason: ContextResetReason, clearHostMark: Bool = true) {
+        #if DEBUG && IME_TEST_BUILD
+        compositionLog.reset(reason, active: isActive, composing: !currentPreedit.isEmpty,
+                             tracking: sentenceBuffer.currentSnapshot != nil, observedMark: observedHostMark,
+                             hasExpectedCaret: expectedHostCaretLocation != nil, clearHostMark: clearHostMark)
+        #endif
         stopPositionRefresh()
         observedHostMark = false
         if clearHostMark, !currentPreedit.isEmpty {
@@ -850,7 +877,7 @@ final class InputMethodController: IMKInputController {
             if applyEnglishCandidate(at: index, client: client) {
                 return true
             }
-            clearDocumentContext()
+            clearDocumentContext(.englishCandidateRejected)
             return false
         case .highlight(let index):
             currentHighlightedIndex = index
@@ -862,7 +889,7 @@ final class InputMethodController: IMKInputController {
             return true
         }
         if event.keyCode == 48 {
-            clearDocumentContext()
+            clearDocumentContext(.unhandledTab)
             return false
         }
 
@@ -872,7 +899,7 @@ final class InputMethodController: IMKInputController {
         }
 
         if isNavigationKey(event.keyCode) || event.keyCode == 53 {
-            clearDocumentContext()
+            clearDocumentContext(.englishNavigation)
             return false
         }
 
@@ -1039,7 +1066,7 @@ final class InputMethodController: IMKInputController {
               selection == NSRange(location: location + 1, length: 0),
               client.attributedSubstring(from: NSRange(location: location, length: 1))?.string == "\n"
         else {
-            clearDocumentContext()
+            clearDocumentContext(.lineBreakUnverified)
             return
         }
         sentenceBuffer.append("\n")
@@ -1060,7 +1087,7 @@ final class InputMethodController: IMKInputController {
         case .keepContext:
             break
         case .clearContext:
-            clearDocumentContext()
+            clearDocumentContext(.trackedCaretChanged)
         case .checkHostLineBreak:
             reconcileHostLineBreak(client: client, selection: selection)
         }
@@ -1083,13 +1110,13 @@ final class InputMethodController: IMKInputController {
             selection.length == 0,
             selection.location == expectedHostCaretLocation
         else {
-            clearDocumentContext()
+            clearDocumentContext(.backspaceContextMismatch)
             return
         }
 
         let removedUTF16Count = String(lastCharacter).utf16.count
         guard selection.location >= removedUTF16Count else {
-            clearDocumentContext()
+            clearDocumentContext(.backspaceRangeInvalid)
             return
         }
 
@@ -1097,7 +1124,7 @@ final class InputMethodController: IMKInputController {
             expectedHostCaretLocation = selection.location - removedUTF16Count
             updateTranslationDraftAndPanel(client: client)
         } else {
-            clearDocumentContext()
+            clearDocumentContext(.lastCharacterRemoved)
         }
     }
 
@@ -1158,7 +1185,7 @@ final class InputMethodController: IMKInputController {
         let original = snapshot.text[correctionStringRange]
         guard suffix.hasPrefix(original) else { return false }
         guard client.attributedSubstring(from: hostRange)?.string == String(suffix) else {
-            clearDocumentContext()
+            clearDocumentContext(.spellingRangeMismatch)
             return false
         }
         let trailingText = suffix.dropFirst(original.count)
