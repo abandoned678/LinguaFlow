@@ -16,6 +16,7 @@ final class AppEnvironment {
     private let dailyEngines = NSHashTable<RimeEngine>.weakObjects()
     private var needsDictionaryReload = false
     private var phraseRevision: PersonalDictionary.Revision?
+    private var weightedRevision: PersonalDictionary.Revision?
     private var unavailableSchemas = Set<String>()
     private var dictionaryObserver: NSObjectProtocol?
     private(set) var health = EngineHealth(state: .preparing)
@@ -44,6 +45,7 @@ final class AppEnvironment {
             catch { needsDictionaryReload = true; logger.error("Learning reset deferred") }
             runtime = try RimeRuntime(sharedDataDirectory: sharedData, userDataDirectory: userData)
             phraseRevision = PersonalDictionary.shared.revision
+            weightedRevision = PersonalDictionary.shared.weightedRevision
             dictionaryObserver = DistributedNotificationCenter.default().addObserver(
                 forName: PersonalDictionary.didChange, object: nil, queue: .main
             ) { [weak self] _ in
@@ -116,9 +118,11 @@ final class AppEnvironment {
     func checkDictionaryChanges() {
         let store = PersonalDictionary.shared
         let revision = store.revision
-        if revision != phraseRevision || store.clearPending {
+        let weights = store.weightedRevision
+        if revision != phraseRevision || weights != weightedRevision || store.clearPending {
             needsDictionaryReload = true
             phraseRevision = revision
+            weightedRevision = weights
         }
         unavailableSchemas.removeAll()
         reloadDictionaryIfIdle()

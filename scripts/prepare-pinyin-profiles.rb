@@ -21,7 +21,11 @@ flypy = ["xform/^(zh|ch|sh|[bpmfdtnlgkhjqxywrzcs])(.+)$/$1~$2/",
 short_finals.each { |final, key| flypy << "xform/~#{final}$/#{key}/" }
 flypy << "xform/~//"
 common = {
-  "engine/translators/+" => ["table_translator@sjy_phrases"],
+  "engine/translators/+" => ["table_translator@sjy_phrases", "table_translator@sjy_weighted"],
+  "sjy_weighted" => {
+    "dictionary" => "", "user_dict" => "sjy_weighted", "db_class" => "stabledb",
+    "enable_completion" => false, "enable_sentence" => false, "initial_quality" => 3
+  },
   "sjy_phrases" => {
     "dictionary" => "", "user_dict" => "sjy_personal", "db_class" => "stabledb",
     "enable_completion" => false, "enable_sentence" => false, "initial_quality" => 10

@@ -6,6 +6,10 @@ import Translation
 
 @MainActor
 private final class SetupAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        UninstallView.operationInProgress ? .terminateCancel : .terminateNow
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
@@ -30,6 +34,8 @@ private struct TranslationSetupView: View {
     @State private var page: Page = .translation
     @State private var settings = InputSettingsStore.shared.read()
     @State private var saveFailed = false
+    @State private var showingUninstall = false
+    @State private var applicationRemoved = false
     @State private var engineHealth = EngineHealth.read()
 
     var body: some View {
@@ -99,12 +105,21 @@ private struct TranslationSetupView: View {
 
             Form {
                 DiagnosticsSettings(resources: appResources, engineHealth: engineHealth)
+                Section("卸载") {
+                    Button("卸载" + UninstallView.productName + "…", role: .destructive) {
+                        showingUninstall = true
+                    }
+                }
             }
             .formStyle(.grouped)
             .tabItem { Label("关于与诊断", systemImage: "info.circle") }
             .tag(Page.about)
         }
         .padding()
+        .disabled(applicationRemoved)
+        .sheet(isPresented: $showingUninstall) {
+            UninstallView { applicationRemoved = true }
+        }
         .onOpenURL { url in
             guard url.scheme == InputSettingsStore.settingsScheme else { return }
             if url.host == "translation" { page = .translation }

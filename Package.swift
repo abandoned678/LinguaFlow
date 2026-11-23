@@ -81,6 +81,7 @@ let package = Package(
                 .linkedFramework("Translation"),
             ]
         ),
+        .testTarget(name: "TranslationSetupTests", dependencies: ["TranslationSetup"]),
         .testTarget(
             name: "InputCoreTests",
             dependencies: ["InputCore"]

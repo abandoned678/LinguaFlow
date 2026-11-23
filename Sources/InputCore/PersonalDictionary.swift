@@ -52,8 +52,10 @@ public struct PersonalDictionary: Sendable {
         fileprivate let modified: Date
     }
 
-    public var revision: Revision? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: phraseFile.path),
+    public var revision: Revision? { revision(of: phraseFile) }
+
+    func revision(of file: URL) -> Revision? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
               let inode = attributes[.systemFileNumber] as? NSNumber,
               let modified = attributes[.modificationDate] as? Date else { return nil }
         return Revision(inode: inode.uint64Value, modified: modified)
@@ -83,10 +85,32 @@ public struct PersonalDictionary: Sendable {
                 guard !entries.contains(where: { $0.code == next.code }) else { throw PersonalDictionaryError.duplicateCode }
                 entries.append(next)
             }
-            let lines = entries.sorted { $0.code < $1.code }.map { "\($0.text)\t\($0.code)\t100\n" }
-            try (Self.header + lines.joined()).write(to: phraseFile, atomically: true, encoding: .utf8)
+            try write(entries)
         }
         notify()
+    }
+
+    /// Resolve conflicts against the dictionary as it exists at commit time.
+    public func importPhrases(_ batch: PhraseImportBatch) throws -> PhraseImportResult {
+        let result = try locked {
+            var entries = try phrases()
+            var used = Set(entries.map(\.code))
+            let originalCount = entries.count
+            for phrase in batch.phrases where used.insert(phrase.code).inserted {
+                entries.append(phrase)
+            }
+            let inserted = entries.count - originalCount
+            if inserted > 0 { try write(entries) }
+            return PhraseImportResult(inserted: inserted, skippedConflicts: batch.validCount - inserted,
+                                      invalidCount: batch.invalidCount)
+        }
+        if result.inserted > 0 { notify() }
+        return result
+    }
+
+    private func write(_ entries: [PersonalPhrase]) throws {
+        let lines = entries.sorted { $0.code < $1.code }.map { "\($0.text)\t\($0.code)\t100\n" }
+        try (Self.header + lines.joined()).write(to: phraseFile, atomically: true, encoding: .utf8)
     }
 
     public func requestClearLearning() throws {
@@ -111,7 +135,7 @@ public struct PersonalDictionary: Sendable {
                                                                      userInfo: nil, deliverImmediately: true)
     }
 
-    private func removeLearningDatabase(_ database: URL) throws {
+    func removeLearningDatabase(_ database: URL) throws {
         // Another installation of the same identity could still own this LevelDB.
         // Honour the POSIX writer lock before removing any of its files.
         let lockFile = database.appendingPathComponent("LOCK").path
@@ -122,7 +146,7 @@ public struct PersonalDictionary: Sendable {
         try FileManager.default.removeItem(at: database)
     }
 
-    private func locked(_ body: () throws -> Void) throws {
+    func locked<T>(_ body: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let fd = open(directory.appendingPathComponent(".sjy-phrases.lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
@@ -130,10 +154,10 @@ public struct PersonalDictionary: Sendable {
         while flock(fd, LOCK_EX) != 0 {
             guard errno == EINTR else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         }
-        try body()
+        return try body()
     }
 
-    private func notify() {
+    func notify() {
         DistributedNotificationCenter.default().postNotificationName(Self.didChange, object: nil,
                                                                      userInfo: nil, deliverImmediately: true)
     }

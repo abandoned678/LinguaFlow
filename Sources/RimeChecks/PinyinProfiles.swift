@@ -93,6 +93,30 @@ enum PinyinProfiles {
                 reader.clear()
             }
         }
+        // Reverse the two weights after the idle-schema handoff; file order stays
+        // unchanged, so cached readers and ignored weights both fail this check.
+        let weightedFile = user.appendingPathComponent("sjy_weighted.txt")
+        for (firstWeight, secondWeight) in [(120, 90), (90, 120)] {
+            let rows = "# Rime table\n#@/db_name\tsjy_weighted\n#@/db_type\ttabledb\n红样本\tqaz\t\(firstWeight)\n蓝样本\tqaz\t\(secondWeight)\n"
+            // Imports publish the complete file first; idle controllers then drop
+            // their old native readers before the next composition starts.
+            try rows.write(to: weightedFile, atomically: true, encoding: .utf8)
+            try require(engine.selectSchema("sjy_idle") && other.selectSchema("sjy_idle"), "releaseWeightedReaders")
+            let expected = firstWeight > secondWeight ? ["红样本", "蓝样本"] : ["蓝样本", "红样本"]
+            for (reader, schema) in [(engine, "luna_pinyin_simp"), (other, "sjy_flypy_private")] {
+                try require(reader.selectSchema(schema), "openWeightedProfile")
+                var ranked = reader.process(keyCode: 113)
+                for key in "az".utf8 { ranked = reader.process(keyCode: Int32(key)) }
+                try require(Array(ranked.candidates.prefix(2).map(\.text)) == expected, "nativeImportedFrequencyOrder")
+                try require(reader.selectCandidate(at: 0).commit == expected[0], "nativeImportedFrequencyCommit")
+                reader.clear()
+            }
+        }
+        try FileManager.default.removeItem(at: weightedFile)
+        try require(engine.selectSchema("sjy_idle") && other.selectSchema("sjy_idle"), "releaseClearedWeightReaders")
+        try require(engine.selectSchema("luna_pinyin_simp"), "reopenClearedWeights")
+        try require(!type("qaz").candidates.contains(where: { ["红样本", "蓝样本"].contains($0.text) }), "removedImportedWeights")
+        print("Native imported frequencies, updates and removal passed")
         print("32 native layout/learning profiles, fuzzy initials, unavailable schema and multi-session phrase mutations passed")
     }
 }
