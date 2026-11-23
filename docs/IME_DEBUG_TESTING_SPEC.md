@@ -147,7 +147,11 @@ Debug 构建 `ED7C3E12-AA09-4865-9540-2AC174AB8B1D` 的九个用例全部通过�
 /usr/bin/log show --last 10m --style compact --predicate 'subsystem == "com.abandoned678.inputmethod.SentenceAlongDebug" AND category == "CompositionReset"'
 ```
 
-对照同一进程和 `controller` 的事件时间。若 `composing=true` 时出现 `reason=caretUnavailable`，说明位置刷新读不到光标，随后走了清理分支。`markUnavailable` 表示标记位置不可用，`markTextMismatch` 表示当前标记与组词核对失败。`lastCharacterRemoved` 且 `composing=false` 可发生在正常删除最后一个已上屏字时。按出现时机区分它和随后输入时的清理。记录包含激活、失活和关闭等边界，控制器标识只在该实例内有效。
+对照同一进程和 `controller` 的事件时间。2026-11-23 的旧构建在 Codex 问题复现期间多次出现 `composition edge=began`，随后在 `composing=true` 时以 `markTextUnavailable` 或 `markLengthMismatch` 清理组词。这两个原因分别表示宿主标记文本不可读、标记范围长度与当前拼音不符。判读时留意事件发生在哪一轮组词。`lastCharacterRemoved` 且 `composing=false` 可发生在正常删除最后一个已上屏字时。控制器标识只在该实例内有效。
+
+修复后，位置刷新只使用范围和长度，不读取拼音正文。对于输入法已经核实的当前标记，连续两次观察到标记消失可触发 `hostMarkEnded`。若宿主清空后仍返回旧标记，则需同时看到光标归零，并确认此前能返回非零长度的宿主连续两次报告文档为空，才触发 `hostDocumentCleared`。中途重新写入标记会使待确认的清理失效。
+
+2026-11-23 安装构建 `1D914F6A-86A1-48EF-9BCA-4CEC67F78936` 后，专用 AppKit 宿主的上屏、组词中途编辑、编辑器清空和标记结束四项通过。编辑器清空运行 ID 为 `CDDE7874-7C4C-4CEF-B7A5-E70C3B9FB663`。Codex 独立草稿测试在确认输入框焦点时停止（`FF7B5638-6F61-4D62-9A69-803797B3C781`），随后用户在 Codex 中手动复测，确认清空后重新输入拼音正常。
 
 重新打字后，沿同一控制器查找 `composition edge=began`。若随后收到 `reset`，查看清理原因；若收到 `composition edge=ended`，用 `hasCommit` 判断该 Rime 快照是否包含上屏内容。`commitComposition` 表示进入提交方法，其中 `source=imkCallback` 来自 IMK 回调，`hostShortcut` 和 `forwardDelete` 分别来自输入法放行快捷键和向前删除的分支。`hidePalettes` 表示有组词或面板内容时收到隐藏请求，单凭这条记录无法断定组词被清空。
 

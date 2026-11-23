@@ -27,7 +27,7 @@ final class InputMethodController: IMKInputController {
     }
     private var eventRanges: HostRanges?
     private var engine: RimeEngine?
-    private var observedHostMark = false
+    private var compositionObservation = HostCompositionObservation()
     private var palettesHidden = false
     private var currentPreedit = ""
     private var preeditCaret = 0
@@ -483,7 +483,7 @@ final class InputMethodController: IMKInputController {
                     recordCurrentCaret(client: client)
                 }
             case .mark(let text):
-                if currentPreedit.isEmpty || text.isEmpty { observedHostMark = false }
+                compositionObservation.wroteMark()
                 currentPreedit = text
                 preeditCaret = snapshot.caretUTF16
                 setMarkedText(text, caret: preeditCaret, client: client)
@@ -711,30 +711,20 @@ final class InputMethodController: IMKInputController {
         }
         eventRanges = HostRanges(client: ObjectIdentifier(activeClient as AnyObject))
         defer { eventRanges = nil }
-        if observedHostMark, let reason = hostCompositionResetReason(activeClient) {
-            clearDocumentContext(reason, clearHostMark: false)
-            return
+        if !currentPreedit.isEmpty {
+            let mark = readMarkedRange(activeClient)
+            let selection = readSelection(activeClient)
+            if let end = compositionObservation.refresh(mark: mark, selection: selection,
+                                                         preeditLength: currentPreedit.utf16.count, caret: preeditCaret,
+                                                         documentLength: { activeClient.length() }) {
+                clearDocumentContext(end == .markEnded ? .hostMarkEnded : .hostDocumentCleared, clearHostMark: false)
+                return
+            }
         }
         reconcileTrackedCaret(client: activeClient)
         guard panelController.ownsPanel(self) else { return }
         captureCaretAnchor(client: activeClient)
         showPanel(client: activeClient)
-    }
-
-    private func hostCompositionResetReason(_ client: any IMKTextInput) -> ContextResetReason? {
-        let mark = readMarkedRange(client)
-        guard mark.location != NSNotFound else { return .markUnavailable }
-        guard mark.length > 0 else { return .markEmpty }
-        let caret = readSelection(client)
-        guard caret.location != NSNotFound else { return .caretUnavailable }
-        // Some clients retain the last IMK mark after clearing their editor. Only
-        // verify our own composition, and only if the host caret has diverged.
-        if caret == mark { return nil }
-        if caret.length == 0, caret.location >= mark.location,
-           caret.location - mark.location == preeditCaret { return nil }
-        guard mark.length == currentPreedit.utf16.count else { return .markLengthMismatch }
-        guard let markedText = client.attributedSubstring(from: mark)?.string else { return .markTextUnavailable }
-        return markedText == currentPreedit ? nil : .markTextMismatch
     }
 
     private func readSelection(_ client: any IMKTextInput) -> NSRange {
@@ -786,10 +776,10 @@ final class InputMethodController: IMKInputController {
         guard let client else { return }
 
         let markedRange = readMarkedRange(client)
-        if !currentPreedit.isEmpty, markedRange.location != NSNotFound, markedRange.length > 0 {
-            observedHostMark = true
-        }
         let selectedRange = readSelection(client)
+        compositionObservation.observed(mark: markedRange, selection: selectedRange,
+                                        preeditLength: currentPreedit.utf16.count, caret: preeditCaret,
+                                        documentLength: { client.length() })
         let preferredRanges = currentPreedit.isEmpty
             ? [selectedRange, markedRange]
             : [markedRange, selectedRange]
@@ -818,11 +808,11 @@ final class InputMethodController: IMKInputController {
     private func clearDocumentContext(_ reason: ContextResetReason, clearHostMark: Bool = true) {
         #if DEBUG && IME_TEST_BUILD
         compositionLog.reset(reason, active: isActive, composing: !currentPreedit.isEmpty,
-                             tracking: sentenceBuffer.currentSnapshot != nil, observedMark: observedHostMark,
+                             tracking: sentenceBuffer.currentSnapshot != nil, observedMark: compositionObservation.verifiedMark != nil,
                              hasExpectedCaret: expectedHostCaretLocation != nil, clearHostMark: clearHostMark)
         #endif
         stopPositionRefresh()
-        observedHostMark = false
+        compositionObservation = HostCompositionObservation()
         if clearHostMark, !currentPreedit.isEmpty {
             setMarkedText("", caret: 0, client: activeClient)
         }

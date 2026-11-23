@@ -13,7 +13,7 @@ enum ContextResetReason {
     case hostShortcut, controlReturn, forwardDelete, englishControl, navigationOrControl
     case replacementSelectionChanged, replacementRangeUnverified, translationReplaced
     case foregroundChangedOnRender, foregroundChangedOnRefresh
-    case markUnavailable, markEmpty, caretUnavailable, markLengthMismatch, markTextUnavailable, markTextMismatch
+    case hostMarkEnded, hostDocumentCleared
     case englishCandidateRejected, unhandledTab, englishNavigation
     case lineBreakUnverified, trackedCaretChanged, backspaceContextMismatch, backspaceRangeInvalid
     case lastCharacterRemoved, spellingRangeMismatch
