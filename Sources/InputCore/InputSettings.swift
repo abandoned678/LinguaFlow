@@ -67,13 +67,15 @@ public struct InputSettingsStore: Sendable {
 
     private static let version = 1
     private let directory: URL
+    private let preferencesDomain: String
 
-    public init(directory: URL) {
+    public init(directory: URL, domain: String = Self.domain) {
         self.directory = directory
+        self.preferencesDomain = domain
     }
 
     public var preferencesURL: URL {
-        directory.appendingPathComponent(Self.domain + ".plist")
+        directory.appendingPathComponent(preferencesDomain + ".plist")
     }
 
     public func read() -> InputSettings {
@@ -82,7 +84,7 @@ public struct InputSettingsStore: Sendable {
 
     public func update(_ edit: (inout InputSettings) -> Void) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let lockPath = directory.appendingPathComponent(Self.domain + ".lock").path
+        let lockPath = directory.appendingPathComponent(preferencesDomain + ".lock").path
         let lock = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR)
         guard lock >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
 
@@ -112,7 +114,7 @@ public struct InputSettingsStore: Sendable {
         let data = try PropertyListSerialization.data(fromPropertyList: fields, format: .binary, options: 0)
         try data.write(to: preferencesURL, options: .atomic)
         DistributedNotificationCenter.default().postNotificationName(
-            Self.didChange, object: nil, userInfo: nil, deliverImmediately: true
+            Notification.Name(preferencesDomain + ".didChange"), object: nil, userInfo: nil, deliverImmediately: true
         )
     }
 

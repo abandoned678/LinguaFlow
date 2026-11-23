@@ -13,6 +13,20 @@ final class InputSettingsTests: XCTestCase {
         }
     }
 
+    func testExternalRunnerReadsConfiguredDebugShortcutInItsOwnDomain() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let debug = InputSettingsStore(directory: directory, domain: "com.abandoned678.inputmethod.SentenceAlongDebug.preferences")
+        let release = InputSettingsStore(directory: directory, domain: "com.abandoned678.inputmethod.SentenceAlong.preferences")
+        try debug.update {
+            $0.translationEnabled = false
+            $0.replacementKeyCode = 0 // ANSI A
+        }
+        XCTAssertFalse(debug.read().translationEnabled)
+        XCTAssertEqual(debug.read().replacementKeyCode, 0)
+        XCTAssertEqual(release.read(), InputSettings())
+    }
+
     func testMissingAndInvalidFieldsUseDefaults() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

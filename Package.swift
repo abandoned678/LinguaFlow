@@ -24,7 +24,7 @@ let package = Package(
         .target(name: "InputSession", dependencies: ["RimeInput"]),
         .target(name: "IMETrace", path: "Tools/IMETesting/Trace"),
         .executableTarget(name: "IMEHost", dependencies: ["IMETrace"], path: "Tools/IMETesting/Host", exclude: ["Info.plist"]),
-        .executableTarget(name: "IMERunner", dependencies: ["IMETrace"], path: "Tools/IMETesting/Runner"),
+        .executableTarget(name: "IMERunner", dependencies: ["IMETrace", "InputCore"], path: "Tools/IMETesting/Runner"),
         .testTarget(name: "IMETraceTests", dependencies: ["IMETrace"]),
         .testTarget(name: "InputSessionTests", dependencies: ["InputSession", "RimeInput", "InputCore"]),
         .target(name: "LocalTranslation", dependencies: ["InputCore"]),

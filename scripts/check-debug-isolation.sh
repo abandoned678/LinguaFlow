@@ -1,7 +1,27 @@
 #!/bin/zsh
 set -euo pipefail
 cd "${0:A:h:h}"
+mode=${1:---if-present}
+debug_bundle=.build/ime-testing/SentenceAlongDebug.app
 bundle=.build/SentenceAlong.app
+case "$mode" in
+  --strict)
+    (( $# <= 2 )) || exit 64
+    expected=$(git rev-parse --verify --end-of-options "${2:-HEAD}^{commit}")
+    for product in "$bundle" "$debug_bundle"; do
+      metadata="$product/Contents/Resources/BuildInfo.plist"
+      [[ -f "$metadata" ]] || { echo "Missing build metadata: $metadata" >&2; exit 65; }
+      commit=$(plutil -extract Commit raw "$metadata")
+      dirty=$(plutil -extract WorkingTreeChanges raw "$metadata")
+      echo "$product: commit=$commit workingTreeChanges=$dirty"
+      [[ "$commit" == "$expected" && "$dirty" == false ]] || {
+        echo "Strict isolation requires clean builds of $expected" >&2
+        exit 65
+      }
+    done ;;
+  --release-only|--if-present) (( $# <= 1 )) || exit 64 ;;
+  *) echo "Usage: $0 [--strict [commit] | --release-only]" >&2; exit 64 ;;
+esac
 plist="$bundle/Contents/Info.plist"
 [[ $(plutil -extract CFBundleIdentifier raw "$plist") == com.abandoned678.inputmethod.SentenceAlong ]]
 [[ $(plutil -extract Configuration raw "$bundle/Contents/Resources/BuildInfo.plist") == release ]]
@@ -12,8 +32,7 @@ symbols=$(nm "$bundle/Contents/MacOS/SentenceAlongIME")
 codesign --verify --deep --strict "$bundle"
 fixture=sentencealong_fixture.schema.yaml
 [[ ! -e "$bundle/Contents/Resources/Rime/$fixture" ]]
-debug_bundle=.build/ime-testing/SentenceAlongDebug.app
-if [[ -d "$debug_bundle" ]]; then
+if [[ "$mode" != --release-only && -d "$debug_bundle" ]]; then
   [[ $(plutil -extract Configuration raw "$debug_bundle/Contents/Resources/BuildInfo.plist") == debug ]]
   [[ $(plutil -extract CFBundleIdentifier raw "$debug_bundle/Contents/Info.plist") == com.abandoned678.inputmethod.SentenceAlongDebug ]]
   plutil -extract IMETestBuild raw "$debug_bundle/Contents/Info.plist" >/dev/null
@@ -52,4 +71,8 @@ if [[ -x .build/debug/InputMethod ]]; then
   ordinary_symbols=$(nm .build/debug/InputMethod)
   [[ "$ordinary_symbols" != *DebugIMEProbe* ]]
 fi
-echo "Release isolation passed"
+if [[ "$mode" == --strict ]]; then
+  echo "Strict Debug and Release isolation passed for $expected"
+else
+  echo "Release isolation passed"
+fi

@@ -1,6 +1,7 @@
 import AppKit
 import Carbon
 import IMETrace
+import InputCore
 
 /// Only operates on a newly opened test document or an empty, unsent draft.
 @MainActor
@@ -11,6 +12,8 @@ final class ExternalHost {
     private let document: URL?
     private let window: AXUIElement
     private let editor: AXUIElement
+    private let settings = InputSettingsStore(directory: TraceRun.root.deletingLastPathComponent(),
+                                              domain: TraceRun.imeID + ".preferences")
     private let installed: URL
     private(set) var observedIMEPID: pid_t?
     private(set) var lastStep = "empty editor verified"
@@ -83,11 +86,19 @@ final class ExternalHost {
         guard try Self.wait(4, for: { NSWorkspace.shared.frontmostApplication?.processIdentifier == pid }) else {
             throw RunFailure.blocked("external host did not activate")
         }
+        let ax = AXUIElementCreateApplication(pid)
+        var originalWindows: [AXUIElement] = []
+        let originalWindow = Self.element(ax, kAXFocusedWindowAttribute)
+        let originalEditor = Self.element(ax, kAXFocusedUIElementAttribute)
+        let hadTextArea = originalEditor.flatMap { Self.attribute($0, kAXRoleAttribute) as? String } == "AXTextArea"
         if document == nil {
+            guard let windows = Self.attribute(ax, kAXWindowsAttribute) as? [AXUIElement] else {
+                throw RunFailure.blocked("cannot identify existing Codex windows")
+            }
+            originalWindows = windows
             try Self.post(UInt16(kVK_ANSI_N), flags: .maskCommand, to: pid)
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
-        let ax = AXUIElementCreateApplication(pid)
         let expectedFile = document
         let waitingForClick = manual && expectedFile == nil
         if waitingForClick {
@@ -104,18 +115,24 @@ final class ExternalHost {
                       URL(string: path)?.standardizedFileURL.resolvingSymlinksInPath()
                         == expectedFile.standardizedFileURL.resolvingSymlinksInPath() else { return false }
             }
+            if expectedFile == nil {
+                guard let editorWindow = Self.element(edit, kAXWindowAttribute), CFEqual(editorWindow, win) else {
+                    return false
+                }
+                let sameWindow = originalWindow.map { CFEqual($0, win) } == true
+                let newWindow = !sameWindow && !originalWindows.contains { CFEqual($0, win) }
+                var oldRole: CFTypeRef?
+                let replaced = hadTextArea && originalEditor.map {
+                    !CFEqual($0, edit) && AXUIElementCopyAttributeValue($0, kAXRoleAttribute as CFString, &oldRole) == .invalidUIElement
+                } == true
+                guard ExternalDraft.isNewTarget(newWindow: newWindow, sameWindow: sameWindow, replacedEditor: replaced)
+                else { return false }
+            }
             target = (win, edit)
             return true
         }), let target else { throw RunFailure.blocked("dedicated editor did not acquire focus") }
         (window, editor) = target
-        // Placeholder text can be exposed as AXValue. Verify the end of the
-        // editable document before reading any text or sending sample input.
-        try key(UInt16(kVK_DownArrow), .maskCommand)
-        guard let rangeValue = Self.attribute(editor, kAXSelectedTextRangeAttribute),
-              CFGetTypeID(rangeValue) == AXValueGetTypeID() else { throw RunFailure.blocked("cannot verify empty draft") }
-        var selection = CFRange()
-        guard AXValueGetValue(rangeValue as! AXValue, .cfRange, &selection), selection.location == 0,
-              selection.length == 0 else { throw RunFailure.blocked("draft is not empty") }
+        try requireEmptyEditor()
         editorVerified = true
     }
 
@@ -137,6 +154,18 @@ final class ExternalHost {
         guard let edit = Self.element(ax, kAXFocusedUIElementAttribute), CFEqual(edit, editor) else {
             throw RunFailure.blocked("external host switched editors")
         }
+    }
+
+    private func requireEmptyEditor() throws {
+        try requireEditor()
+        // AXValue may be a placeholder. Read only the independent length and caret.
+        let count = Self.attribute(editor, kAXNumberOfCharactersAttribute) as? Int
+        guard let value = Self.attribute(editor, kAXSelectedTextRangeAttribute),
+              CFGetTypeID(value) == AXValueGetTypeID() else { throw RunFailure.blocked("cannot verify empty draft") }
+        var selection = CFRange()
+        guard AXValueGetValue(value as! AXValue, .cfRange, &selection),
+              ExternalDraft.isEmpty(characterCount: count, selection: NSRange(location: selection.location, length: selection.length))
+        else { throw RunFailure.blocked("draft is nonempty or editable character count unavailable") }
     }
 
     private func contents() throws -> String {
@@ -181,11 +210,26 @@ final class ExternalHost {
         return windows
     }
 
+    private func readyPreview(pid: pid_t) -> String? {
+        let ime = AXUIElementCreateApplication(pid)
+        guard var elements = Self.attribute(ime, kAXWindowsAttribute) as? [AXUIElement] else { return nil }
+        while let element = elements.popLast() {
+            if Self.attribute(element, kAXDescriptionAttribute) as? String == "随键译输入、纠错与翻译预览",
+               let value = Self.attribute(element, kAXValueAttribute) as? String,
+               let translation = ExternalDraft.previewTranslation(value) { return translation }
+            if let children = Self.attribute(element, kAXChildrenAttribute) as? [AXUIElement] {
+                elements.append(contentsOf: children)
+            }
+        }
+        return nil
+    }
+
     func execute(manual: Bool) throws {
+        var expectedCleanup: Set<String> = []
         defer {
             // A failed software route can leave the literal keystrokes in the draft.
             // Only remove our known sample, while the exact editor is still focused.
-            if let sample = try? contents(), ["nihao", "nihao ", "你好", "hello", "hi"].contains(sample.lowercased()) {
+            if let sample = try? contents(), expectedCleanup.contains(sample) {
                 try? key(UInt16(kVK_ANSI_A), .maskCommand)
                 if (try? contents()) == sample { try? key(UInt16(kVK_Delete)) }
             }
@@ -194,6 +238,18 @@ final class ExternalHost {
                 try? FileManager.default.removeItem(at: document)
             }
         }
+        guard settings.read().translationEnabled else { throw RunFailure.blocked("translation disabled in Debug settings") }
+        try requireEmptyEditor()
+        // Seed unrelated text through the host, so it is outside the IME sentence.
+        guard AXUIElementSetAttributeValue(editor, kAXSelectedTextAttribute as CFString,
+                                           ExternalDraft.prefix as CFString) == .success else {
+            throw RunFailure.blocked("could not seed synthetic document prefix")
+        }
+        expectedCleanup.insert(ExternalDraft.prefix)
+        guard try Self.wait(2, for: { try contents() == ExternalDraft.prefix }) else {
+            throw RunFailure.blocked("synthetic document prefix not verified")
+        }
+        expectedCleanup.formUnion([ExternalDraft.chinese, ExternalDraft.prefix + "nihao", ExternalDraft.prefix + "nihao "])
         let baseline = try debugWindows()
         if manual {
             print("输入 nihao，等候选窗出现后按空格。"); fflush(stdout)
@@ -208,20 +264,28 @@ final class ExternalHost {
         }) else { throw RunFailure.blocked("no candidate window from the installed Debug IME") }
         lastStep = "installed Debug candidate window"
         if !manual { try key(PinyinCommit.confirm) }
-        guard try Self.wait(manual ? 20 : 3, for: { try contents() == "你好" }) else {
+        guard try Self.wait(manual ? 20 : 3, for: { try contents() == ExternalDraft.chinese }) else {
             throw RunFailure.failed("Chinese commit mismatch")
         }
         lastStep = "Chinese document verified"
-        // External apps do not export the synthetic host's translation-ready probe.
-        RunLoop.current.run(until: Date().addingTimeInterval(4))
-        try key(UInt16(kVK_ANSI_T), [.maskControl, .maskShift])
-        guard try Self.wait(3, for: {
-            let translation = try contents().lowercased().trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines))
-            return ["hello", "hi"].contains(translation)
-        }) else { throw RunFailure.failed("English range replacement mismatch") }
+        var preview: String?
+        guard let pid = observedIMEPID, try Self.wait(20, for: {
+            try requireEditor()
+            guard try contents() == ExternalDraft.chinese else { throw RunFailure.blocked("sample changed before replacement") }
+            guard try debugWindows().values.contains(pid) else { return false }
+            preview = readyPreview(pid: pid)
+            return preview != nil
+        }), let preview else { throw RunFailure.blocked("expected English preview not observed before timeout") }
+        lastStep = "English preview verified"
+        let currentSettings = settings.read()
+        guard currentSettings.translationEnabled else { throw RunFailure.blocked("translation disabled in Debug settings") }
+        expectedCleanup.insert(ExternalDraft.prefix + preview)
+        try key(currentSettings.replacementKeyCode, [.maskControl, .maskShift])
+        guard try Self.wait(3, for: { ExternalDraft.matchesReplacement(try contents(), preview: preview) })
+        else { throw RunFailure.failed("English range replacement mismatch") }
         lastStep = "English document verified"
         try key(UInt16(kVK_ANSI_Z), .maskCommand)
-        guard try Self.wait(3, for: { try contents() == "你好" }) else { throw RunFailure.failed("host undo mismatch") }
+        guard try Self.wait(3, for: { try contents() == ExternalDraft.chinese }) else { throw RunFailure.failed("host undo mismatch") }
         lastStep = "native undo restored Chinese"
     }
 }

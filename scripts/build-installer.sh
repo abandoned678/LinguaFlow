@@ -6,6 +6,10 @@ export COPYFILE_DISABLE=1
 project_dir=${0:A:h:h}
 configuration=${1:-release}
 [[ "$configuration" == release ]] || { echo "Installer packages require a release build" >&2; exit 64; }
+if (( $# > 2 )) || [[ -n "${2:-}" && "${2:-}" != --strict ]]; then
+  echo "Usage: $0 [release [--strict]]" >&2
+  exit 64
+fi
 architecture=arm64
 app_sign_identity=${CODE_SIGN_IDENTITY:--}
 installer_sign_identity=${INSTALLER_SIGN_IDENTITY:-}
@@ -46,17 +50,43 @@ package_filename="SentenceAlong-${package_version}-macOS-${architecture}${signat
 output_package="$dist_dir/$package_filename"
 
 mkdir -p "$project_dir/.build" "$dist_dir"
+# Serialize builds that share the Release app and the published package.
+lock="$dist_dir/.installer.lock"
+: >> "$lock"
+zmodload zsh/system
+zsystem flock -t 15 -f lock_fd "$lock" || { echo "Another installer build is running" >&2; exit 75; }
 work_dir=$(/usr/bin/mktemp -d "$project_dir/.build/installer.XXXXXX")
 staged_package="$work_dir/$package_filename"
+publishing=0
 cleanup() {
+  local result=$?
+  trap - EXIT HUP INT TERM
+  if (( publishing )); then
+    for suffix in "" .sha256; do
+      if [[ -e "$work_dir/previous$suffix" ]]; then
+        [[ "$work_dir/previous$suffix" -ef "$output_package$suffix" ]] && continue
+        /bin/mv -f "$work_dir/previous$suffix" "$output_package$suffix" || {
+          echo "Could not restore package. Recovery directory: $work_dir" >&2; exit 1
+        }
+      elif [[ ! -e "$staged_package$suffix" ]]; then
+        /bin/rm -f "$output_package$suffix" || exit 1
+      fi
+    done
+  fi
   /bin/rm -rf "$work_dir"
+  exit "$result"
 }
 trap cleanup EXIT
-
-/bin/rm -f "$output_package" "$output_package.sha256"
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 CODE_SIGN_IDENTITY="$app_sign_identity" \
   "$project_dir/scripts/build-app.sh" "$configuration" >/dev/null
+
+if [[ "${2:-}" == --strict ]]; then
+  "$project_dir/scripts/check-debug-isolation.sh" --strict
+fi
 
 payload_root="$work_dir/root"
 payload_input_methods="$payload_root/Library/Input Methods"
@@ -304,12 +334,22 @@ fi
   /usr/bin/shasum -a 256 "$package_filename"
 ) > "$staged_package.sha256"
 
-/bin/mv "$staged_package.sha256" "$output_package.sha256"
-/bin/mv "$staged_package" "$output_package"
 (
-  cd "$dist_dir"
+  cd "$work_dir"
   /usr/bin/shasum -a 256 -c "${package_filename}.sha256" >/dev/null
 )
+
+# Both files are ready. Retain the previous pair until both renames succeed.
+for suffix in "" .sha256; do
+  [[ ! -d "$output_package$suffix" ]] || { echo "Output is a directory: $output_package$suffix" >&2; exit 65; }
+  if [[ -e "$output_package$suffix" ]]; then
+    /bin/ln "$output_package$suffix" "$work_dir/previous$suffix"
+  fi
+done
+publishing=1
+/bin/mv -f "$staged_package" "$output_package"
+/bin/mv -f "$staged_package.sha256" "$output_package.sha256"
+publishing=0
 
 echo "$output_package"
 echo "$output_package.sha256"
